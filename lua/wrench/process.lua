@@ -51,6 +51,7 @@ function M.plugin(plugin, lock_data)
 
 	-- Clone if not already installed
 	if vim.fn.isdirectory(install_path) == 0 then
+		log.info("Installing " .. utils.get_name(url) .. "...")
 		local opts = {
 			branch = plugin.branch,
 			tag = plugin.tag,
@@ -62,22 +63,36 @@ function M.plugin(plugin, lock_data)
 			return lock_changed
 		end
 
-		-- Update lockfile entry
-		local commit = git.get_head(install_path)
-		if commit and plugin.branch then
-			lock_data[url] = { branch = plugin.branch, commit = commit }
-			lock_changed = true
-		end
-
 		log.info("Installed " .. url)
 	end
 
-	-- Add to runtimepath
-	vim.opt.rtp:prepend(install_path)
+	-- Ensure lockfile entry exists
+	if not lock_data[url] then
+		local commit = git.get_head(install_path)
+		local branch = plugin.branch or git.get_branch(install_path)
+		if commit and branch then
+			lock_data[url] = { branch = branch, commit = commit }
+			lock_changed = true
+		end
+	end
 
-	-- Run config function if provided
-	if plugin.config and type(plugin.config) == "function" then
-		plugin.config()
+	-- Load plugin (immediately or deferred)
+	if plugin.ft then
+		vim.api.nvim_create_autocmd("FileType", {
+			pattern = plugin.ft,
+			once = true,
+			callback = function()
+				vim.opt.rtp:prepend(install_path)
+				if plugin.config and type(plugin.config) == "function" then
+					plugin.config()
+				end
+			end,
+		})
+	else
+		vim.opt.rtp:prepend(install_path)
+		if plugin.config and type(plugin.config) == "function" then
+			plugin.config()
+		end
 	end
 
 	return lock_changed

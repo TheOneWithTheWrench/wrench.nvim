@@ -69,6 +69,7 @@ require("wrench").add({
     commit = "abc123...",                    -- optional, pins to exact commit
     config = function() ... end,             -- optional, runs after load
     dependencies = { ... },                  -- optional, other plugin specs
+    ft = { "lua", "python" },                -- optional, lazy load on filetype
 }
 ```
 
@@ -80,6 +81,17 @@ require("wrench").add({
 | `:WrenchSync` | Sync plugins to config |
 | `:WrenchRestore` | Restore plugins to lockfile |
 | `:WrenchGetRegistered` | Show registered plugins |
+
+## Lazy loading
+
+Plugins with `ft` specified will only load when you open a file of that type:
+
+```lua
+{
+    url = "https://github.com/rust-lang/rust.vim",
+    ft = { "rust" },
+}
+```
 
 ## Plugins with build steps
 

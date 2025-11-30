@@ -23,6 +23,7 @@ local registered_plugins = {}
 ---@field tag? string (Optional) Specify a git tag to checkout.
 ---@field commit? string (Optional) Pin to a specific commit hash.
 ---@field config? function (Optional) A function to run after the plugin is loaded.
+---@field ft? string[] (Optional) Only load plugin when opening files of this type.
 
 --- A list of plugins to be processed, each as a PluginConfig table.
 ---@alias PluginList PluginConfig[]
