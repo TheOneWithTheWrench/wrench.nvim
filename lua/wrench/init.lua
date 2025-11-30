@@ -8,6 +8,7 @@ local validate = require("wrench.validate")
 local process = require("wrench.process")
 local commands = require("wrench.commands")
 local update_ui = require("wrench.update")
+local loader = require("wrench.loader")
 
 commands.setup()
 
@@ -196,6 +197,24 @@ end
 ---@return PluginList
 function M.get_registered()
 	return registered_plugins
+end
+
+---Sets up wrench by loading plugins from a directory.
+---@param import_path string The path relative to lua/ to scan for plugin specs (e.g., "plugins").
+function M.setup(import_path)
+	if not import_path or type(import_path) ~= "string" then
+		log.error("setup() requires an import path (e.g., 'plugins')")
+		return
+	end
+
+	local plugins = loader.load_all(import_path)
+
+	if #plugins == 0 then
+		log.info("No plugins found in " .. import_path)
+		return
+	end
+
+	M.add(plugins)
 end
 
 return M
