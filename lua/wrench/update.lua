@@ -52,6 +52,10 @@ function M.collect_one(url, branch, current_commit)
     end
 
     local log_lines = git.log_range(install_path, current_commit, new_commit) or {}
+
+    if #log_lines == 0 then
+        return nil
+    end
     local old_tag = git.describe_tag(install_path, current_commit)
     local new_tag = git.describe_tag(install_path, new_commit)
 
