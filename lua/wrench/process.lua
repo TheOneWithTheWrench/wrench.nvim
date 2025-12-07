@@ -121,6 +121,17 @@ local function load_plugin_now(url, spec_map)
     local install_path = utils.get_install_path(url)
     vim.opt.rtp:prepend(install_path)
 
+    local plugin_dir = install_path .. "/plugin"
+    if vim.fn.isdirectory(plugin_dir) == 1 then
+        for _, file in ipairs(vim.fn.readdir(plugin_dir)) do
+            if file:match("%.vim$") then
+                vim.cmd("source " .. plugin_dir .. "/" .. file)
+            elseif file:match("%.lua$") then
+                dofile(plugin_dir .. "/" .. file)
+            end
+        end
+    end
+
     if spec.config and type(spec.config) == "function" then
         spec.config()
     end
