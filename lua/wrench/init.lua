@@ -1,19 +1,11 @@
--- wrench/init.lua
-
 local M = {}
-local log = require("wrench.log")
+
 local lockfile = require("wrench.lockfile")
+local git = require("wrench.git")
 local utils = require("wrench.utils")
-local process = require("wrench.process")
-local commands = require("wrench.commands")
-local update_ui = require("wrench.update")
-local specs = require("wrench.specs")
 
-commands.setup()
-
---- The merged spec map (URL → canonical spec).
----@type PluginMap
-local spec_map = {}
+-- Load commands to register user commands
+require("wrench.commands")
 
 ---@class DependencyRef
 ---@field url string The plugin URL. This is the ONLY allowed field for dependencies.
@@ -35,173 +27,126 @@ local spec_map = {}
 ---@field commit? string (Optional) Pin to a specific commit hash.
 ---@field config? function (Optional) A function to run after the plugin is loaded.
 
---- A list of plugins to be processed, each as a PluginSpec table.
----@alias PluginList PluginSpec[]
-
---- A map of plugin URL to its canonical spec.
+---A map of plugin URL to its canonical spec.
 ---@alias PluginMap table<string, PluginSpec>
 
----Sets up wrench by scanning for plugins in a directory.
----@param import_path string The path relative to lua/ to scan for plugin specs (e.g., "plugins").
-function M.setup(import_path)
-	if not import_path or type(import_path) ~= "string" then
-		log.error("setup() requires an import path (e.g., 'plugins')")
+-- Default configuration
+M.config = {
+	install_dir = vim.fn.stdpath("data") .. "/wrench/plugins",
+	lockfile_path = vim.fn.stdpath("config") .. "/wrench-lock.json",
+}
+
+-- Store registered specs for debugging
+local registered_specs = {}
+
+---Setup wrench with user configuration.
+---@param import string Path to scan for plugin specs (e.g., "plugins" scans lua/plugins/)
+---@param opts? table Optional configuration overrides (install_dir, lockfile_path, base_path)
+function M.setup(import, opts)
+	if not import or type(import) ~= "string" then
+		error("setup() requires an import path (e.g., 'plugins')")
 		return
 	end
 
-	local plugins, err = specs.find_all(import_path)
+	opts = opts or {}
+	opts.import = import
+	M.config = vim.tbl_extend("force", M.config, opts)
 
-	if not plugins then
-		log.error("Failed to find plugins: " .. (err or "unknown error"))
-		return
+	local specs_module = require("wrench.specs")
+	local loader_module = require("wrench.loader")
+
+	-- Scan for plugin specs (base_path is optional, for testing)
+	local specs, scan_err = specs_module.scan(import, opts.base_path)
+	if scan_err then
+		error("Failed to scan plugins: " .. scan_err)
 	end
 
-	if vim.tbl_isempty(plugins) then
-		log.info("No plugins found in " .. import_path)
-		return
+	-- Store specs for get_registered()
+	registered_specs = specs
+
+	-- Ensure all plugins are installed (clone missing only, skip checkout for existing)
+	local install_ok, install_err = M.ensure_installed(specs, M.config.lockfile_path, M.config.install_dir)
+	if not install_ok then
+		error("Failed to install plugins: " .. install_err)
 	end
 
-	M.add(plugins)
+	-- Setup loading for all plugins
+	loader_module.setup_loading(specs, M.config.install_dir)
 end
 
---- Adds and processes a map of plugins.
----@param plugins PluginMap A map of URL to PluginSpec.
-function M.add(plugins)
-	if not plugins or type(plugins) ~= "table" then
-		log.error("add() requires a PluginMap.")
-		return
+---Ensures all plugins are installed by cloning missing ones.
+---Does NOT sync/checkout existing plugins (fast for startup).
+---Updates lockfile with newly installed plugins.
+---@param specs PluginMap Map of plugin URL to PluginSpec.
+---@param lockfile_path string Path to the lockfile.
+---@param install_dir string Directory where plugins are installed.
+---@return boolean success True if all plugins installed successfully.
+---@return string? error Error message if failed.
+function M.ensure_installed(specs, lockfile_path, install_dir)
+	local lock_data, read_err = lockfile.read(lockfile_path)
+	if read_err then
+		return false, read_err
 	end
 
-	-- Merge into global spec_map
-	for url, spec in pairs(plugins) do
-		spec_map[url] = spec
-	end
-
-	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
 	local lock_changed = false
 
-	-- Phase 1: Ensure all plugins are installed
-	for url, _ in pairs(plugins) do
-		if process.ensure_installed(url, spec_map, lock_data) then
+	for url, spec in pairs(specs) do
+		local name = utils.get_name(url)
+		local plugin_path = install_dir .. "/" .. name
+
+		-- Clone if plugin doesn't exist
+		if vim.fn.isdirectory(plugin_path) == 0 then
+			print("Installing " .. name .. "...")
+			local clone_success, clone_err = git.clone(url, plugin_path)
+			if not clone_success then
+				return false, "Failed to clone " .. name .. ": " .. (clone_err or "unknown error")
+			end
+
+			-- Checkout to spec pin if specified (branch/tag/commit)
+			local target_ref = spec.commit or spec.tag or spec.branch
+			if target_ref then
+				local checkout_success, checkout_err = git.checkout(plugin_path, target_ref)
+				if not checkout_success then
+					return false, "Failed to checkout " .. name .. " to " .. target_ref .. ": " .. (checkout_err or "unknown error")
+				end
+			end
+			-- Else: leave at whatever clone gave us (default branch HEAD)
+			-- Note: We do NOT checkout to lockfile here - that's only for restore()
+
+			-- Record the current commit in lockfile
+			local current_sha, get_err = git.get_head(plugin_path)
+			if get_err then
+				return false, "Failed to get HEAD for " .. name .. ": " .. get_err
+			end
+			lock_data[url] = current_sha
 			lock_changed = true
 		end
 	end
 
+	-- Write lockfile if changed
 	if lock_changed then
-		local ok, write_err = lockfile.write(utils.LOCKFILE_PATH, lock_data)
-		if not ok then
-			log.error("Failed to write lockfile: " .. (write_err or "unknown error"))
+		local write_success, write_err = lockfile.write(lockfile_path, lock_data)
+		if not write_success then
+			return false, write_err
 		end
 	end
 
-	-- Phase 2: Set up loading for all plugins
-	for url, _ in pairs(plugins) do
-		process.setup_loading(url, spec_map)
-	end
+	return true, nil
 end
 
----Syncs plugins to the commits specified in config.
----Iterates over all registered plugins and checks out the specified commit if different from current.
-function M.sync()
-	log.info("Syncing plugins...")
-
-	if vim.tbl_isempty(spec_map) then
-		log.warn("No plugins registered. Call setup() first.")
-		return
+---Restores all plugins to the commits specified in the lockfile.
+---This makes the installed plugins match the lockfile.
+---Clones plugins if they don't exist, then checks out to the locked commit.
+---Does NOT consider plugin specs - only uses the lockfile.
+---@param lockfile_path string Path to the lockfile.
+---@param install_dir string Directory where plugins are installed.
+---@return boolean success True if restore succeeded.
+---@return string? error Error message if restore failed.
+function M.restore(lockfile_path, install_dir)
+	local lock_data, read_err = lockfile.read(lockfile_path)
+	if read_err then
+		return false, read_err
 	end
-
-	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
-	local lock_changed = false
-
-	-- Remove lockfile entries not in spec_map
-	for url, _ in pairs(lock_data) do
-		if not spec_map[url] then
-			log.info("Removing " .. url .. " from lockfile")
-			lock_data[url] = nil
-			lock_changed = true
-		end
-	end
-
-	for url, spec in pairs(spec_map) do
-		if process.sync(url, spec, lock_data) then
-			lock_changed = true
-		end
-	end
-
-	if lock_changed then
-		local ok, write_err = lockfile.write(utils.LOCKFILE_PATH, lock_data)
-		if not ok then
-			log.error("Failed to write lockfile: " .. (write_err or "unknown error"))
-		end
-	end
-end
-
----Updates all plugins to latest (ignores pinned commits).
----Fetches latest commits, shows changes, prompts for approval, then restores.
-function M.update()
-	log.info("Checking for updates...")
-
-	if vim.tbl_isempty(spec_map) then
-		log.warn("No plugins registered. Call setup() first.")
-		return
-	end
-
-	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
-
-	-- Phase 1: Collect all available updates
-	local updates = update_ui.collect_all(spec_map, lock_data)
-
-	if #updates == 0 then
-		log.info("All plugins up to date.")
-		return
-	end
-
-	log.info("Found " .. #updates .. " plugin(s) with updates.")
-
-	-- Phase 2: Interactive review
-	local approved = update_ui.review(updates)
-
-	if #approved == 0 then
-		log.info("No updates selected.")
-		return
-	end
-
-	-- Phase 3: Apply approved updates to lockfile
-	for _, info in ipairs(approved) do
-		lock_data[info.url] = info.new_commit
-	end
-
-	local ok, write_err = lockfile.write(utils.LOCKFILE_PATH, lock_data)
-	if not ok then
-		log.error("Failed to write lockfile: " .. (write_err or "unknown error"))
-		return
-	end
-
-	-- Phase 4: Restore (checkout the new commits)
-	log.info("Applying " .. #approved .. " update(s)...")
-	M.restore()
-end
-
----Restores all plugins to the state in the lockfile.
----Plugins not in lockfile will be removed.
-function M.restore()
-	log.info("Restoring plugins...")
-
-	local lock_data = lockfile.read(utils.LOCKFILE_PATH)
-
-	if vim.tbl_isempty(lock_data) then
-		log.warn("Lockfile is empty. Nothing to restore.")
-		return
-	end
-
-	-- Get list of installed plugins
-	local install_dir = utils.INSTALL_PATH
-	if vim.fn.isdirectory(install_dir) == 0 then
-		log.warn("No plugins installed.")
-		return
-	end
-
-	local installed = vim.fn.readdir(install_dir)
 
 	-- Build set of plugin names from lockfile
 	local locked_names = {}
@@ -209,24 +154,127 @@ function M.restore()
 		locked_names[utils.get_name(url)] = url
 	end
 
-	-- Restore or remove each installed plugin
-	for _, name in ipairs(installed) do
-		local url = locked_names[name]
-		if url then
-			-- Plugin is in lockfile — restore to locked commit
-			process.restore(url, lock_data[url])
-		else
-			-- Plugin not in lockfile — remove it
-			log.warn("Plugin " .. name .. " not in lockfile, removing...")
-			process.remove(name)
+	-- Remove plugins not in lockfile
+	if vim.fn.isdirectory(install_dir) == 1 then
+		local installed = vim.fn.readdir(install_dir)
+		for _, name in ipairs(installed) do
+			if not locked_names[name] then
+				vim.fn.delete(install_dir .. "/" .. name, "rf")
+			end
 		end
 	end
+
+	-- Restore plugins in lockfile
+	for url, sha in pairs(lock_data) do
+		local name = utils.get_name(url)
+		local plugin_path = install_dir .. "/" .. name
+
+		-- Clone if plugin doesn't exist
+		if vim.fn.isdirectory(plugin_path) == 0 then
+			local clone_success, clone_err = git.clone(url, plugin_path)
+			if not clone_success then
+				return false, "Failed to clone " .. name .. ": " .. (clone_err or "unknown error")
+			end
+		end
+
+		-- Checkout to locked commit
+		local checkout_success, checkout_err = git.checkout(plugin_path, sha)
+		if not checkout_success then
+			return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+		end
+	end
+
+	return true, nil
 end
 
----Returns all registered plugins (for debugging).
----@return PluginMap
+---Syncs plugins to match the plugin specs, updating the lockfile.
+---This makes the lockfile match the plugin specs.
+---For each spec:
+---  - Clones if plugin doesn't exist
+---  - Checks out to spec.commit OR spec.tag OR spec.branch (if specified)
+---  - Falls back to lockfile commit if spec has no pin
+---  - Updates lockfile with current HEAD
+---Spec pins (commit/tag/branch) override the lockfile.
+---@param specs PluginMap Map of plugin URL to PluginSpec.
+---@param lockfile_path string Path to the lockfile.
+---@param install_dir string Directory where plugins are installed.
+---@return boolean success True if sync succeeded.
+---@return string? error Error message if sync failed.
+function M.sync(specs, lockfile_path, install_dir)
+	local lock_data, read_err = lockfile.read(lockfile_path)
+	if read_err then
+		return false, read_err
+	end
+
+	local lock_changed = false
+
+	for url, spec in pairs(specs) do
+		local name = utils.get_name(url)
+		local plugin_path = install_dir .. "/" .. name
+
+		-- Clone if plugin doesn't exist
+		if vim.fn.isdirectory(plugin_path) == 0 then
+			print("Installing " .. name .. "...")
+			local clone_success, clone_err = git.clone(url, plugin_path)
+			if not clone_success then
+				return false, "Failed to clone " .. name .. ": " .. (clone_err or "unknown error")
+			end
+		end
+
+		-- Determine target ref: spec.commit OR spec.tag OR spec.branch OR lockfile OR resolve
+		local target_ref = spec.commit or spec.tag or spec.branch
+
+		if target_ref then
+			-- Spec has a pin - checkout to it
+			local checkout_success, checkout_err = git.checkout(plugin_path, target_ref)
+			if not checkout_success then
+				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+			end
+		elseif lock_data[url] then
+			-- No pin in spec - use lockfile
+			local checkout_success, checkout_err = git.checkout(plugin_path, lock_data[url])
+			if not checkout_success then
+				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+			end
+		else
+			-- No pin, no lockfile - resolve to latest semver tag or remote head
+			local resolved_ref, resolve_err = utils.resolve_target_ref(plugin_path)
+			if resolve_err then
+				return false, "Failed to resolve version for " .. name .. ": " .. resolve_err
+			end
+			local checkout_success, checkout_err = git.checkout(plugin_path, resolved_ref)
+			if not checkout_success then
+				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+			end
+		end
+
+		-- Update lockfile with current HEAD
+		local current_sha, get_err = git.get_head(plugin_path)
+		if get_err then
+			return false, "Failed to get HEAD for " .. name .. ": " .. get_err
+		end
+
+		if lock_data[url] ~= current_sha then
+			lock_data[url] = current_sha
+			lock_changed = true
+		end
+	end
+
+	-- Write lockfile if changed
+	if lock_changed then
+		local write_success, write_err = lockfile.write(lockfile_path, lock_data)
+		if not write_success then
+			return false, write_err
+		end
+	end
+
+	return true, nil
+end
+
+---Returns all registered plugin specs (for debugging).
+---@return table spec_map Map of URL to PluginSpec.
 function M.get_registered()
-	return spec_map
+	return registered_specs
 end
 
 return M

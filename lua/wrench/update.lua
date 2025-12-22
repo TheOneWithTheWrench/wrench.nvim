@@ -1,164 +1,205 @@
 local M = {}
 local git = require("wrench.git")
+local lockfile = require("wrench.lockfile")
 local utils = require("wrench.utils")
-local log = require("wrench.log")
 
 ---@class UpdateInfo
 ---@field url string Plugin URL
----@field name string Plugin name
----@field old_commit string Current commit SHA
----@field new_commit string New commit SHA from remote
----@field log_lines string[] Commit messages between old and new
----@field old_tag? string Tag at old commit
----@field new_tag? string Tag at new commit
----@field is_major_bump boolean Whether this is a major version bump
+---@field old_sha string Current commit SHA
+---@field new_sha string New commit SHA
+---@field old_tag string? Old semver tag (if any)
+---@field new_tag string? New semver tag (if any)
+---@field commits string[] Commit messages between old and new
+---@field is_major_bump boolean True if major version changed
 
----Parses semver major version from a tag.
----@param tag string? Tag like "v2.1.0"
----@return number? major The major version number
-local function parse_major(tag)
-    if not tag then
-        return nil
-    end
-    local major = tag:match("v?(%d+)%.")
-    return tonumber(major)
+---Collects available updates for unpinned plugins.
+---@param specs table<string, PluginSpec> Map of plugin URL to spec
+---@param lockfile_path string Path to lockfile
+---@param install_dir string Directory where plugins are installed
+---@return table<string, UpdateInfo>? updates Map of URL to UpdateInfo, or nil if error
+---@return string? error Error message if failed
+function M.collect_updates(specs, lockfile_path, install_dir)
+	local lock_data, read_err = lockfile.read(lockfile_path)
+	if read_err then
+		return nil, read_err
+	end
+
+	local updates = {}
+
+	for url, spec in pairs(specs) do
+		-- Skip pinned plugins
+		if spec.commit or spec.tag or spec.branch then
+			goto continue
+		end
+
+		local name = utils.get_name(url)
+		local plugin_path = install_dir .. "/" .. name
+
+		-- Skip if plugin doesn't exist
+		if vim.fn.isdirectory(plugin_path) == 0 then
+			goto continue
+		end
+
+		-- Get current locked commit
+		local old_sha = lock_data[url]
+		if not old_sha then
+			goto continue
+		end
+
+		-- Resolve new target (latest semver or remote head)
+		print("Checking " .. name .. " for updates...")
+		local new_sha, resolve_err = utils.resolve_target_ref(plugin_path)
+		if resolve_err then
+			return nil, "Failed to resolve update for " .. name .. ": " .. resolve_err
+		end
+
+		-- Skip if no update available
+		if old_sha == new_sha then
+			goto continue
+		end
+
+		-- Get commit log between old and new
+		local log_result = vim.system(
+			{ "git", "log", "--oneline", old_sha .. ".." .. new_sha },
+			{ cwd = plugin_path }
+		):wait()
+
+		if log_result.code ~= 0 then
+			return nil, "Failed to get commit log for " .. name
+		end
+
+		local commits = {}
+		if vim.trim(log_result.stdout) ~= "" then
+			commits = vim.split(vim.trim(log_result.stdout), "\n")
+		end
+
+		-- Skip if no commits between old and new (same commit or tag was moved)
+		if #commits == 0 then
+			goto continue
+		end
+
+		-- Try to get tags for old and new commits
+		local old_tag = M.get_tag_for_commit(plugin_path, old_sha)
+		local new_tag = M.get_tag_for_commit(plugin_path, new_sha)
+
+		-- Detect major version bump
+		local is_major_bump = false
+		if old_tag and new_tag then
+			local old_version = utils.parse_semver(old_tag)
+			local new_version = utils.parse_semver(new_tag)
+			if old_version and new_version then
+				is_major_bump = new_version.major > old_version.major
+			end
+		end
+
+		updates[url] = {
+			url = url,
+			old_sha = old_sha,
+			new_sha = new_sha,
+			old_tag = old_tag,
+			new_tag = new_tag,
+			commits = commits,
+			is_major_bump = is_major_bump,
+		}
+
+		::continue::
+	end
+
+	return updates, nil
 end
 
----Fetches and collects update info for a single plugin.
----@param url string Plugin URL
----@param branch string Branch name
----@param current_commit string Current commit from lockfile
----@return UpdateInfo? info Update info, or nil if no updates
-function M.collect_one(url, branch, current_commit)
-    local install_path = utils.get_install_path(url)
+---Gets the semver tag for a commit (if any).
+---@param plugin_path string Plugin repository path
+---@param commit_sha string Commit SHA
+---@return string? tag The semver tag, or nil if none
+function M.get_tag_for_commit(plugin_path, commit_sha)
+	-- Get all tags pointing to this commit
+	local result = vim.system(
+		{ "git", "tag", "--points-at", commit_sha },
+		{ cwd = plugin_path }
+	):wait()
 
-    if vim.fn.isdirectory(install_path) == 0 then
-        return nil
-    end
+	if result.code ~= 0 or vim.trim(result.stdout) == "" then
+		return nil
+	end
 
-    local ok, err = git.fetch(install_path)
-    if not ok then
-        log.error("Failed to fetch " .. url .. ": " .. (err or ""))
-        return nil
-    end
+	local tags = vim.split(vim.trim(result.stdout), "\n")
 
-    local new_commit = git.get_remote_head(install_path, branch)
-    if not new_commit then
-        return nil
-    end
+	-- Find the first valid semver tag
+	for _, tag in ipairs(tags) do
+		if utils.parse_semver(tag) then
+			return tag
+		end
+	end
 
-    if new_commit == current_commit then
-        return nil
-    end
-
-    local log_lines = git.log_range(install_path, current_commit, new_commit) or {}
-
-    if #log_lines == 0 then
-        return nil
-    end
-    local old_tag = git.describe_tag(install_path, current_commit)
-    local new_tag = git.describe_tag(install_path, new_commit)
-
-    local old_major = parse_major(old_tag)
-    local new_major = parse_major(new_tag)
-    local is_major_bump = old_major and new_major and new_major > old_major
-
-    return {
-        url = url,
-        name = utils.get_name(url),
-        old_commit = current_commit,
-        new_commit = new_commit,
-        log_lines = log_lines,
-        old_tag = old_tag,
-        new_tag = new_tag,
-        is_major_bump = is_major_bump or false,
-    }
+	return nil
 end
 
----Collects updates for all registered plugins.
----@param spec_map PluginMap Map of URL to spec
----@param lock_data LockData Current lockfile data
----@return UpdateInfo[] updates List of available updates
-function M.collect_all(spec_map, lock_data)
-    local updates = {}
-
-    for url, spec in pairs(spec_map) do
-        -- Skip pinned commits or tags
-        if spec.commit or spec.tag then
-            goto continue
-        end
-
-        local current_commit = lock_data[url]
-        if not current_commit then
-            goto continue
-        end
-
-        -- Use spec branch, or detect from repo
-        local branch = spec.branch
-        if not branch then
-            local install_path = utils.get_install_path(url)
-            branch = git.get_branch(install_path)
-            if not branch then
-                goto continue
-            end
-        end
-
-        log.info("Checking " .. utils.get_name(url) .. "...")
-        local info = M.collect_one(url, branch, current_commit)
-        if info then
-            table.insert(updates, info)
-        end
-
-        ::continue::
-    end
-
-    return updates
-end
-
----Formats update info for display.
----@param info UpdateInfo
----@return string formatted
+---Formats an update for display.
+---@param info UpdateInfo The update information
+---@return string[] lines Array of lines to display
 function M.format_update(info)
-    local lines = {}
+	local lines = {}
+	local name = utils.get_name(info.url)
 
-    local header = info.name .. " (" .. #info.log_lines .. " commits)"
-    if info.is_major_bump then
-        header = header .. " ⚠️  MAJOR " .. (info.old_tag or "?") .. " → " .. (info.new_tag or "?")
-    elseif info.new_tag and info.old_tag and info.new_tag ~= info.old_tag then
-        header = header .. " " .. info.old_tag .. " → " .. info.new_tag
-    end
-    table.insert(lines, header)
-    table.insert(lines, string.rep("-", #header))
+	-- Build header: plugin-name (X commits)
+	local header = name .. " (" .. #info.commits .. " commits)"
 
-    for _, log_line in ipairs(info.log_lines) do
-        table.insert(lines, "  " .. log_line)
-    end
+	-- Add version info if available
+	if info.old_tag and info.new_tag then
+		header = header .. " [" .. info.old_tag .. " → " .. info.new_tag .. "]"
+	end
 
-    return table.concat(lines, "\n")
+	-- Add warning for major bumps
+	if info.is_major_bump then
+		header = header .. " ⚠️  BREAKING"
+	end
+
+	table.insert(lines, header)
+
+	-- Add commit messages (indented)
+	for _, commit in ipairs(info.commits) do
+		table.insert(lines, "  " .. commit)
+	end
+
+	return lines
 end
 
----Prompts user to review updates one by one.
----@param updates UpdateInfo[] List of updates
----@return UpdateInfo[] approved List of approved updates
-function M.review(updates)
-    local approved = {}
+---Applies updates by updating lockfile and checking out new commits.
+---@param updates table<string, UpdateInfo> Map of URL to UpdateInfo
+---@param lockfile_path string Path to lockfile
+---@param install_dir string Directory where plugins are installed
+---@return boolean success True if all updates applied successfully
+---@return string? error Error message if failed
+function M.apply_updates(updates, lockfile_path, install_dir)
+	local lock_data, read_err = lockfile.read(lockfile_path)
+	if read_err then
+		return false, read_err
+	end
 
-    for i, info in ipairs(updates) do
-        local formatted = M.format_update(info)
-        print("\n" .. formatted .. "\n")
+	-- Update lockfile
+	for url, info in pairs(updates) do
+		lock_data[url] = info.new_sha
+	end
 
-        local prompt = string.format("[%d/%d] Update %s? (y)es / (n)o / (q)uit: ", i, #updates, info.name)
-        local choice = vim.fn.input(prompt):lower()
-        vim.api.nvim_out_write("\n")
+	local write_success, write_err = lockfile.write(lockfile_path, lock_data)
+	if not write_success then
+		return false, write_err
+	end
 
-        if choice == "y" or choice == "yes" then
-            table.insert(approved, info)
-        elseif choice == "q" or choice == "quit" then
-            break
-        end
-    end
+	-- Checkout new commits
+	for url, info in pairs(updates) do
+		local name = utils.get_name(url)
+		local plugin_path = install_dir .. "/" .. name
 
-    return approved
+		print("Updating " .. name .. "...")
+		local checkout_success, checkout_err = git.checkout(plugin_path, info.new_sha)
+		if not checkout_success then
+			return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+		end
+	end
+
+	return true, nil
 end
 
 return M
