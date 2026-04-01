@@ -12,7 +12,7 @@ local utils = require("wrench.utils")
 ---@field commits string[] Commit messages between old and new
 ---@field is_major_bump boolean True if major version changed
 
----Collects available updates for unpinned plugins.
+---Collects available updates for updateable plugins.
 ---@param specs table<string, PluginSpec> Map of plugin URL to spec
 ---@param lockfile_path string Path to lockfile
 ---@param install_dir string Directory where plugins are installed
@@ -27,8 +27,8 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 	local updates = {}
 
 	for url, spec in pairs(specs) do
-		-- Skip pinned plugins
-		if spec.commit or spec.tag or spec.branch then
+		-- Skip hard-pinned plugins
+		if spec.commit or spec.tag then
 			goto continue
 		end
 
@@ -46,9 +46,14 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 			goto continue
 		end
 
-		-- Resolve new target (latest semver or remote head)
-		print("Checking " .. name .. " for updates...")
-		local new_sha, resolve_err = utils.resolve_target_ref(plugin_path)
+		local new_sha, resolve_err
+		if spec.branch then
+			print("Checking " .. name .. " for updates on " .. spec.branch .. "...")
+			new_sha, resolve_err = utils.resolve_branch_ref(plugin_path, spec.branch)
+		else
+			print("Checking " .. name .. " for updates...")
+			new_sha, resolve_err = utils.resolve_target_ref(plugin_path)
+		end
 		if resolve_err then
 			return nil, "Failed to resolve update for " .. name .. ": " .. resolve_err
 		end
@@ -73,8 +78,8 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 			commits = vim.split(vim.trim(log_result.stdout), "\n")
 		end
 
-		-- Skip if no commits between old and new (same commit or tag was moved)
-		if #commits == 0 then
+		-- Branch-tracked plugins should still update on branch rewinds.
+		if #commits == 0 and not spec.branch then
 			goto continue
 		end
 

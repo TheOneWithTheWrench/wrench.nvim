@@ -41,10 +41,122 @@ describe("update", function()
 		end
 	end
 
-	describe("collect_updates", function()
-		it("returns update when newer semver tag available", function()
-			-- arrange
-			local ctx = new_test_context()
+		describe("collect_updates", function()
+			it("returns update when tracked branch has advanced", function()
+				-- arrange
+				local ctx = new_test_context()
+				init_repo(ctx.source, with_commit("initial"))
+
+				vim.fn.mkdir(ctx.install_dir, "p")
+				git.clone(ctx.source, ctx.install_dir .. "/source")
+				local old_sha = git.get_head(ctx.source)
+
+				vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = ctx.source }):wait()
+				local new_sha = git.get_head(ctx.source)
+
+				lockfile.write(ctx.lockfile_path, {
+					[ctx.source] = old_sha,
+				})
+
+				local specs = {
+					[ctx.source] = { url = ctx.source, branch = "master" },
+				}
+
+				-- act
+				local updates, err = update.collect_updates(specs, ctx.lockfile_path, ctx.install_dir)
+
+				-- assert
+				assert.is_nil(err)
+				assert.is_not_nil(updates)
+				local info = updates[ctx.source]
+				assert.is_not_nil(info)
+				assert.are.equal(old_sha, info.old_sha)
+				assert.are.equal(new_sha, info.new_sha)
+
+				ctx.cleanup()
+			end)
+
+			it("prefers tracked branch head over semver tags", function()
+				-- arrange
+				local ctx = new_test_context()
+				init_repo(ctx.source,
+					with_commit("initial"),
+					with_tag("v1.0.0"),
+					with_commit("second"),
+					with_tag("v2.0.0"),
+					with_commit("third-untagged")
+				)
+
+				vim.fn.mkdir(ctx.install_dir, "p")
+				git.clone(ctx.source, ctx.install_dir .. "/source")
+
+				local old_sha = git.get_head(ctx.source, "v2.0.0")
+				local new_sha = git.get_head(ctx.source)
+				git.checkout(ctx.install_dir .. "/source", old_sha)
+
+				lockfile.write(ctx.lockfile_path, {
+					[ctx.source] = old_sha,
+				})
+
+				local specs = {
+					[ctx.source] = { url = ctx.source, branch = "master" },
+				}
+
+				-- act
+				local updates, err = update.collect_updates(specs, ctx.lockfile_path, ctx.install_dir)
+
+				-- assert
+				assert.is_nil(err)
+				assert.is_not_nil(updates)
+				local info = updates[ctx.source]
+				assert.is_not_nil(info)
+				assert.are.equal(old_sha, info.old_sha)
+				assert.are.equal(new_sha, info.new_sha)
+				assert.are.equal("v2.0.0", info.old_tag)
+				assert.is_nil(info.new_tag)
+
+				ctx.cleanup()
+			end)
+
+			it("returns update when tracked branch is rewound", function()
+				-- arrange
+				local ctx = new_test_context()
+				init_repo(ctx.source, with_commit("initial"), with_commit("second"))
+
+				vim.fn.mkdir(ctx.install_dir, "p")
+				git.clone(ctx.source, ctx.install_dir .. "/source")
+
+				local new_sha = git.get_head(ctx.source, "HEAD~1")
+				local old_sha = git.get_head(ctx.source)
+
+				vim.system({ "git", "reset", "--hard", new_sha }, { cwd = ctx.source }):wait()
+
+				lockfile.write(ctx.lockfile_path, {
+					[ctx.source] = old_sha,
+				})
+
+				local specs = {
+					[ctx.source] = { url = ctx.source, branch = "master" },
+				}
+
+				-- act
+				local updates, err = update.collect_updates(specs, ctx.lockfile_path, ctx.install_dir)
+
+				-- assert
+				assert.is_nil(err)
+				assert.is_not_nil(updates)
+				local info = updates[ctx.source]
+				assert.is_not_nil(info)
+				assert.are.equal(old_sha, info.old_sha)
+				assert.are.equal(new_sha, info.new_sha)
+				assert.are.equal(0, #info.commits)
+
+				ctx.cleanup()
+			end)
+
+			it("returns update when newer semver tag available", function()
+				-- arrange
+				local ctx = new_test_context()
 			init_repo(ctx.source,
 				with_commit("initial"),
 				with_tag("v1.0.0"),

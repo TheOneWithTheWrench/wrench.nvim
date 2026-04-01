@@ -192,10 +192,11 @@ end
 ---This makes the lockfile match the plugin specs.
 ---For each spec:
 ---  - Clones if plugin doesn't exist
----  - Checks out to spec.commit OR spec.tag OR spec.branch (if specified)
+---  - Checks out to spec.commit OR spec.tag (if specified)
+---  - Resolves spec.branch to the latest remote branch head (if specified)
 ---  - Falls back to lockfile commit if spec has no pin
 ---  - Updates lockfile with current HEAD
----Spec pins (commit/tag/branch) override the lockfile.
+---Spec pins (commit/tag) and branch tracking override the lockfile.
 ---@param specs PluginMap Map of plugin URL to PluginSpec.
 ---@param lockfile_path string Path to the lockfile.
 ---@param install_dir string Directory where plugins are installed.
@@ -222,12 +223,20 @@ function M.sync(specs, lockfile_path, install_dir)
 			end
 		end
 
-		-- Determine target ref: spec.commit OR spec.tag OR spec.branch OR lockfile OR resolve
-		local target_ref = spec.commit or spec.tag or spec.branch
+		local target_ref = spec.commit or spec.tag
 
 		if target_ref then
 			-- Spec has a pin - checkout to it
 			local checkout_success, checkout_err = git.checkout(plugin_path, target_ref)
+			if not checkout_success then
+				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
+			end
+		elseif spec.branch then
+			local resolved_ref, resolve_err = utils.resolve_branch_ref(plugin_path, spec.branch)
+			if resolve_err then
+				return false, "Failed to resolve branch for " .. name .. ": " .. resolve_err
+			end
+			local checkout_success, checkout_err = git.checkout(plugin_path, resolved_ref)
 			if not checkout_success then
 				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
 			end

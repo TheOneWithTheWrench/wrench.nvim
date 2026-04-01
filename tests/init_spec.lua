@@ -323,6 +323,42 @@ describe("wrench", function()
 			ctx.cleanup()
 		end)
 
+		it("syncs existing plugin with branch pin to latest remote branch head", function()
+			-- arrange
+			local ctx = new_test_context()
+			init_repo(ctx.source, with_commit("initial"))
+
+			vim.fn.mkdir(ctx.install_dir, "p")
+			git.clone(ctx.source, ctx.install_dir .. "/source")
+			local old_sha = git.get_head(ctx.source)
+
+			vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = ctx.source }):wait()
+			local new_sha = git.get_head(ctx.source)
+
+			lockfile.write(ctx.lockfile_path, {
+				[ctx.source] = old_sha,
+			})
+
+			local specs = {
+				[ctx.source] = { branch = "master" },
+			}
+
+			-- act
+			local success, err = wrench.sync(specs, ctx.lockfile_path, ctx.install_dir)
+
+			-- assert
+			assert.is_true(success)
+			assert.is_nil(err)
+
+			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			assert.are.equal(new_sha, current_sha)
+
+			local lock_data = lockfile.read(ctx.lockfile_path)
+			assert.are.equal(new_sha, lock_data[ctx.source])
+
+			ctx.cleanup()
+		end)
+
 		it("syncs new plugin with no pin, resolves to latest semver tag", function()
 			-- arrange
 			local ctx = new_test_context()

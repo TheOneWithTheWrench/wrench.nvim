@@ -70,7 +70,28 @@ function M.get_latest_semver_tag(tags)
 	return latest_tag
 end
 
----Resolves the target ref for a plugin (semver-first, fallback to remote head).
+---Resolves the target ref for a branch-tracked plugin.
+---@param plugin_path string The plugin repository path.
+---@param branch string The branch name to resolve from origin.
+---@return string? sha The commit SHA to checkout, or nil if failed.
+---@return string? error Error message if resolution failed.
+function M.resolve_branch_ref(plugin_path, branch)
+	local git = require("wrench.git")
+
+	local fetch_success, fetch_err = git.fetch(plugin_path)
+	if not fetch_success then
+		return nil, fetch_err
+	end
+
+	local sha, err = git.get_remote_head(plugin_path, branch)
+	if err then
+		return nil, err
+	end
+
+	return sha, nil
+end
+
+---Resolves the target ref for an unpinned plugin (semver-first, fallback to remote head).
 ---@param plugin_path string The plugin repository path.
 ---@return string? sha The commit SHA to checkout, or nil if failed.
 ---@return string? error Error message if resolution failed.
