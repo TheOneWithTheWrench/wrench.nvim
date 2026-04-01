@@ -31,8 +31,7 @@ local function load_plugin_now(url, spec, specs, install_dir)
 		end
 	end
 
-	local name = utils.get_name(url)
-	local plugin_path = install_dir .. "/" .. name
+	local plugin_path = assert(utils.resolve_plugin_path(install_dir, url))
 	vim.opt.rtp:prepend(plugin_path)
 
 	-- Source plugin/ files

@@ -1,6 +1,7 @@
 local wrench = require("wrench.init")
 local lockfile = require("wrench.lockfile")
 local git = require("wrench.git")
+local utils = require("wrench.utils")
 
 describe("wrench", function()
 	-- Test helpers
@@ -43,6 +44,10 @@ describe("wrench", function()
 		end
 	end
 
+	local plugin_path = function(install_dir, url)
+		return utils.get_plugin_path(install_dir, url)
+	end
+
 
 	describe("restore", function()
 		it("restores plugin to locked commit when plugin exists", function()
@@ -54,10 +59,10 @@ describe("wrench", function()
 
 			-- Clone to install_dir (will be at second commit)
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 			-- Verify we're at second commit
-			local before_sha = git.get_head(ctx.install_dir .. "/source")
+			local before_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(second_sha, before_sha)
 
 			-- Write lockfile pointing to first commit
@@ -71,7 +76,7 @@ describe("wrench", function()
 			-- assert
 			assert.is_true(success)
 			assert.is_nil(err)
-			local after_sha = git.get_head(ctx.install_dir .. "/source")
+			local after_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(first_sha, after_sha)
 
 			ctx.cleanup()
@@ -95,8 +100,8 @@ describe("wrench", function()
 			-- assert
 			assert.is_true(success)
 			assert.is_nil(err)
-			assert.are.equal(1, vim.fn.isdirectory(ctx.install_dir .. "/source/.git"))
-			local after_sha = git.get_head(ctx.install_dir .. "/source")
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path(ctx.install_dir, ctx.source) .. "/.git"))
+			local after_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(first_sha, after_sha)
 
 			ctx.cleanup()
@@ -125,7 +130,7 @@ describe("wrench", function()
 
 			-- Clone plugin
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 			-- Write lockfile with invalid SHA
 			lockfile.write(ctx.lockfile_path, {
@@ -166,8 +171,8 @@ describe("wrench", function()
 
 			-- Install two plugins
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/plugin1")
-			git.clone(ctx.source, ctx.install_dir .. "/plugin2")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, "https://github.com/user/plugin1"))
+			git.clone(ctx.source, plugin_path(ctx.install_dir, "https://github.com/user/plugin2"))
 
 			-- Lockfile only has plugin1
 			lockfile.write(ctx.lockfile_path, {
@@ -182,10 +187,10 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- plugin1 should exist
-			assert.are.equal(1, vim.fn.isdirectory(ctx.install_dir .. "/plugin1"))
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path(ctx.install_dir, "https://github.com/user/plugin1")))
 
 			-- plugin2 should be removed
-			assert.are.equal(0, vim.fn.isdirectory(ctx.install_dir .. "/plugin2"))
+			assert.are.equal(0, vim.fn.isdirectory(plugin_path(ctx.install_dir, "https://github.com/user/plugin2")))
 
 			ctx.cleanup()
 		end)
@@ -208,11 +213,11 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be cloned
-			assert.are.equal(1, vim.fn.isdirectory(ctx.install_dir .. "/source/.git"))
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path(ctx.install_dir, ctx.source) .. "/.git"))
 
 			-- Lockfile should have current HEAD
 			local lock_data = lockfile.read(ctx.lockfile_path)
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(current_sha, lock_data[ctx.source])
 
 			ctx.cleanup()
@@ -237,7 +242,7 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be at pinned commit
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(first_sha, current_sha)
 			assert.are_not_equal(second_sha, current_sha)
 
@@ -257,7 +262,7 @@ describe("wrench", function()
 
 			-- Clone plugin and write lockfile with second commit
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			lockfile.write(ctx.lockfile_path, {
 				[ctx.source] = second_sha,
 			})
@@ -275,7 +280,7 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be at spec's pinned commit (not lockfile)
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(first_sha, current_sha)
 
 			-- Lockfile should be updated to match spec
@@ -293,7 +298,7 @@ describe("wrench", function()
 
 			-- Clone plugin at second commit
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 			-- Lockfile points to first commit
 			lockfile.write(ctx.lockfile_path, {
@@ -313,7 +318,7 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be at lockfile commit
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(first_sha, current_sha)
 
 			-- Lockfile should stay the same
@@ -329,7 +334,7 @@ describe("wrench", function()
 			init_repo(ctx.source, with_commit("initial"))
 
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			local old_sha = git.get_head(ctx.source)
 
 			vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = ctx.source }):wait()
@@ -350,7 +355,7 @@ describe("wrench", function()
 			assert.is_true(success)
 			assert.is_nil(err)
 
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(new_sha, current_sha)
 
 			local lock_data = lockfile.read(ctx.lockfile_path)
@@ -387,7 +392,7 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be at v2.0.0 (latest semver tag), NOT at HEAD
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(v2_sha, current_sha)
 			assert.are_not.equal(head_sha, current_sha)
 
@@ -416,7 +421,7 @@ describe("wrench", function()
 			assert.is_nil(err)
 
 			-- Plugin should be at remote head
-			local current_sha = git.get_head(ctx.install_dir .. "/source")
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(head_sha, current_sha)
 
 			-- Lockfile should have head commit
@@ -462,7 +467,7 @@ return {
 
 			-- assert
 			-- Plugin should be installed
-			assert.are.equal(1, vim.fn.isdirectory(ctx.install_dir .. "/source/.git"))
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path(ctx.install_dir, ctx.source) .. "/.git"))
 
 			-- Plugin should be in lockfile
 			local lock_data = lockfile.read(ctx.lockfile_path)
@@ -472,7 +477,7 @@ return {
 			local rtp = vim.opt.rtp:get()
 			local found = false
 			for _, path in ipairs(rtp) do
-				if path == ctx.install_dir .. "/source" then
+				if path == plugin_path(ctx.install_dir, ctx.source) then
 					found = true
 					break
 				end
@@ -516,7 +521,7 @@ return {
 			wrench.ensure_installed(specs, ctx.lockfile_path, ctx.install_dir)
 
 			-- assert
-			local installed_sha = git.get_head(ctx.install_dir .. "/source")
+			local installed_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
 			assert.are.equal(main_sha, installed_sha, "Should checkout to main branch, not master")
 			assert.are_not.equal(master_sha, installed_sha, "Should NOT be on master branch")
 

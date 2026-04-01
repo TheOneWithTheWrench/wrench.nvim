@@ -1,6 +1,7 @@
 local update = require("wrench.update")
 local git = require("wrench.git")
 local lockfile = require("wrench.lockfile")
+local utils = require("wrench.utils")
 
 describe("update", function()
 	-- Test helpers
@@ -41,14 +42,18 @@ describe("update", function()
 		end
 	end
 
-		describe("collect_updates", function()
+	local plugin_path = function(install_dir, url)
+		return utils.get_plugin_path(install_dir, url)
+	end
+
+	describe("collect_updates", function()
 			it("returns update when tracked branch has advanced", function()
 				-- arrange
 				local ctx = new_test_context()
 				init_repo(ctx.source, with_commit("initial"))
 
 				vim.fn.mkdir(ctx.install_dir, "p")
-				git.clone(ctx.source, ctx.install_dir .. "/source")
+				git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 				local old_sha = git.get_head(ctx.source)
 
 				vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = ctx.source }):wait()
@@ -88,11 +93,11 @@ describe("update", function()
 				)
 
 				vim.fn.mkdir(ctx.install_dir, "p")
-				git.clone(ctx.source, ctx.install_dir .. "/source")
+				git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 				local old_sha = git.get_head(ctx.source, "v2.0.0")
 				local new_sha = git.get_head(ctx.source)
-				git.checkout(ctx.install_dir .. "/source", old_sha)
+				git.checkout(plugin_path(ctx.install_dir, ctx.source), old_sha)
 
 				lockfile.write(ctx.lockfile_path, {
 					[ctx.source] = old_sha,
@@ -124,7 +129,7 @@ describe("update", function()
 				init_repo(ctx.source, with_commit("initial"), with_commit("second"))
 
 				vim.fn.mkdir(ctx.install_dir, "p")
-				git.clone(ctx.source, ctx.install_dir .. "/source")
+				git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 				local new_sha = git.get_head(ctx.source, "HEAD~1")
 				local old_sha = git.get_head(ctx.source)
@@ -166,9 +171,9 @@ describe("update", function()
 
 			-- Clone and lock to v1.0.0
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			local v1_0_sha = git.get_head(ctx.source, "v1.0.0")
-			git.checkout(ctx.install_dir .. "/source", v1_0_sha)
+			git.checkout(plugin_path(ctx.install_dir, ctx.source), v1_0_sha)
 			lockfile.write(ctx.lockfile_path, {
 				[ctx.source] = v1_0_sha,
 			})
@@ -208,9 +213,9 @@ describe("update", function()
 
 			-- Clone and lock to v1.5.0
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			local v1_sha = git.get_head(ctx.source, "v1.5.0")
-			git.checkout(ctx.install_dir .. "/source", v1_sha)
+			git.checkout(plugin_path(ctx.install_dir, ctx.source), v1_sha)
 			lockfile.write(ctx.lockfile_path, {
 				[ctx.source] = v1_sha,
 			})
@@ -244,7 +249,7 @@ describe("update", function()
 			)
 
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			local v1_sha = git.get_head(ctx.source, "v1.0.0")
 			lockfile.write(ctx.lockfile_path, {
 				[ctx.source] = v1_sha,
@@ -273,7 +278,7 @@ describe("update", function()
 			)
 
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 			local v1_sha = git.get_head(ctx.source, "v1.0.0")
 			lockfile.write(ctx.lockfile_path, {
 				[ctx.source] = v1_sha,
@@ -303,7 +308,7 @@ describe("update", function()
 			)
 
 			vim.fn.mkdir(ctx.install_dir, "p")
-			git.clone(ctx.source, ctx.install_dir .. "/source")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
 
 			local v1_sha = git.get_head(ctx.source, "v1.0.0")
 

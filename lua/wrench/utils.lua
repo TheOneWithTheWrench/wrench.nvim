@@ -8,6 +8,43 @@ function M.get_name(url)
 	return name:gsub("%.git$", "")
 end
 
+---Returns a collision-safe install directory name for a plugin.
+---@param url string
+---@return string
+function M.get_plugin_dir_name(url)
+	return string.format("%s-%s", M.get_name(url), vim.fn.sha256(url):sub(1, 8))
+end
+
+---Returns the canonical plugin install path.
+---@param install_dir string
+---@param url string
+---@return string
+function M.get_plugin_path(install_dir, url)
+	return install_dir .. "/" .. M.get_plugin_dir_name(url)
+end
+
+---Resolves the plugin path, migrating legacy basename-only installs when found.
+---@param install_dir string
+---@param url string
+---@return string? plugin_path
+---@return string? error
+function M.resolve_plugin_path(install_dir, url)
+	local plugin_path = M.get_plugin_path(install_dir, url)
+	if vim.fn.isdirectory(plugin_path) == 1 then
+		return plugin_path, nil
+	end
+
+	local legacy_path = install_dir .. "/" .. M.get_name(url)
+	if vim.fn.isdirectory(legacy_path) == 1 then
+		local rename_result = vim.fn.rename(legacy_path, plugin_path)
+		if rename_result ~= 0 then
+			return nil, "Failed to migrate plugin path for " .. url
+		end
+	end
+
+	return plugin_path, nil
+end
+
 ---Parses a semver tag into components.
 ---@param tag string The tag to parse (e.g., "v1.2.3", "1.2.3").
 ---@return table? version Table with {major, minor, patch} or nil if invalid/pre-release.
@@ -70,12 +107,22 @@ function M.get_latest_semver_tag(tags)
 	return latest_tag
 end
 
----Resolves the target ref for a branch-tracked plugin.
+---Resolves the target ref for a plugin spec.
 ---@param plugin_path string The plugin repository path.
----@param branch string The branch name to resolve from origin.
+---@param spec PluginSpec
+---@param locked_sha? string Locked SHA to use when the spec is otherwise unpinned.
 ---@return string? sha The commit SHA to checkout, or nil if failed.
 ---@return string? error Error message if resolution failed.
-function M.resolve_branch_ref(plugin_path, branch)
+function M.resolve_ref(plugin_path, spec, locked_sha)
+	local pinned_ref = spec.commit or spec.tag
+	if pinned_ref then
+		return pinned_ref, nil
+	end
+
+	if locked_sha and not spec.branch then
+		return locked_sha, nil
+	end
+
 	local git = require("wrench.git")
 
 	local fetch_success, fetch_err = git.fetch(plugin_path)
@@ -83,25 +130,13 @@ function M.resolve_branch_ref(plugin_path, branch)
 		return nil, fetch_err
 	end
 
-	local sha, err = git.get_remote_head(plugin_path, branch)
-	if err then
-		return nil, err
-	end
+	if spec.branch then
+		local sha, err = git.get_remote_head(plugin_path, spec.branch)
+		if err then
+			return nil, err
+		end
 
-	return sha, nil
-end
-
----Resolves the target ref for an unpinned plugin (semver-first, fallback to remote head).
----@param plugin_path string The plugin repository path.
----@return string? sha The commit SHA to checkout, or nil if failed.
----@return string? error Error message if resolution failed.
-function M.resolve_target_ref(plugin_path)
-	local git = require("wrench.git")
-
-	-- Fetch latest from remote
-	local fetch_success, fetch_err = git.fetch(plugin_path)
-	if not fetch_success then
-		return nil, fetch_err
+		return sha, nil
 	end
 
 	-- Get all tags
@@ -121,19 +156,12 @@ function M.resolve_target_ref(plugin_path)
 		return sha, nil
 	end
 
-	-- No semver tags - fall back to remote head
-	-- Try master first, then main
-	local sha, err = git.get_remote_head(plugin_path, "master")
-	if not err then
-		return sha, nil
+	local sha, err = git.get_remote_default_head(plugin_path)
+	if err then
+		return nil, err
 	end
 
-	sha, err = git.get_remote_head(plugin_path, "main")
-	if not err then
-		return sha, nil
-	end
-
-	return nil, "Failed to resolve target ref: no semver tags and no master/main branch"
+	return sha, nil
 end
 
 return M

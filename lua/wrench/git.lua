@@ -98,4 +98,19 @@ function M.get_remote_head(path, branch)
 	return sha, nil
 end
 
+---Gets the commit SHA for the remote default branch.
+---@param path string The repository path.
+---@return string? sha The commit SHA, or nil if failed.
+---@return string? error Error message if operation failed.
+function M.get_remote_default_head(path)
+	local result = vim.system({ "git", "rev-parse", "origin/HEAD" }, { cwd = path }):wait()
+
+	if result.code ~= 0 then
+		return nil, "Failed to get remote default head: " .. (result.stderr or "unknown error")
+	end
+
+	local sha = vim.trim(result.stdout)
+	return sha, nil
+end
+
 return M

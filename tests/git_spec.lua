@@ -361,4 +361,39 @@ describe("git", function()
 			cleanup(dir)
 		end)
 	end)
+
+	describe("get_remote_default_head", function()
+		it("returns SHA for remote default branch", function()
+			local dir = new_test_dir()
+			local source = dir .. "/source"
+			local clone = dir .. "/clone"
+
+			init_repo(source, with_commit("initial"))
+			vim.system({ "git", "checkout", "-b", "stable" }, { cwd = source }):wait()
+			vim.system({ "git", "commit", "--allow-empty", "-m", "stable" }, { cwd = source }):wait()
+			local source_sha = git.get_head(source)
+
+			git.clone(source, clone)
+
+			local sha, err = git.get_remote_default_head(clone)
+
+			assert.is_nil(err)
+			assert.are.equal(source_sha, sha)
+
+			cleanup(dir)
+		end)
+
+		it("returns error when path is not a git repository", function()
+			local dir = new_test_dir()
+			local not_repo = dir .. "/notrepo"
+			vim.fn.mkdir(not_repo, "p")
+
+			local sha, err = git.get_remote_default_head(not_repo)
+
+			assert.is_nil(sha)
+			assert.is_not_nil(err)
+
+			cleanup(dir)
+		end)
+	end)
 end)

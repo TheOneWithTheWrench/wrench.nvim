@@ -172,5 +172,25 @@ return {
 
 			ctx.cleanup()
 		end)
+
+		it("reloads edited spec files on subsequent scans", function()
+			local ctx = new_test_context()
+			local spec_file = ctx.plugins_dir .. "/example.lua"
+
+			write_spec_file(spec_file, 'return { url = "https://github.com/user/plugin1" }')
+			local first_result, first_err = specs.scan("plugins", ctx.lua_dir)
+
+			assert.is_nil(first_err)
+			assert.is_not_nil(first_result["https://github.com/user/plugin1"])
+
+			write_spec_file(spec_file, 'return { url = "https://github.com/user/plugin2" }')
+			local second_result, second_err = specs.scan("plugins", ctx.lua_dir)
+
+			assert.is_nil(second_err)
+			assert.is_nil(second_result["https://github.com/user/plugin1"])
+			assert.is_not_nil(second_result["https://github.com/user/plugin2"])
+
+			ctx.cleanup()
+		end)
 	end)
 end)

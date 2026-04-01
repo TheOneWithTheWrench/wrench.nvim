@@ -1,4 +1,5 @@
 local loader = require("wrench.loader")
+local utils = require("wrench.utils")
 
 describe("loader", function()
 	-- Test helpers
@@ -15,8 +16,8 @@ describe("loader", function()
 		return ctx
 	end
 
-	local create_folder = function(path, name)
-		local plugin_path = path .. "/" .. name
+	local create_plugin_folder = function(path, url)
+		local plugin_path = utils.get_plugin_path(path, url)
 		vim.fn.mkdir(plugin_path, "p")
 		return plugin_path
 	end
@@ -35,11 +36,12 @@ describe("loader", function()
 		it("loads plugin eagerly when no lazy triggers", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "test-plugin")
+			local url = "https://github.com/user/test-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local specs = {
-				["https://github.com/user/test-plugin"] = {
-					url = "https://github.com/user/test-plugin",
+				[url] = {
+					url = url,
 				},
 			}
 
@@ -55,12 +57,13 @@ describe("loader", function()
 		it("runs config function when loading plugin", function()
 			-- arrange
 			local ctx = new_test_context()
-			create_folder(ctx.install_dir, "config-plugin")
+			local url = "https://github.com/user/config-plugin"
+			create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/config-plugin"] = {
-					url = "https://github.com/user/config-plugin",
+				[url] = {
+					url = url,
 					config = function()
 						config_called = true
 					end,
@@ -79,22 +82,24 @@ describe("loader", function()
 		it("loads dependencies before main plugin", function()
 			-- arrange
 			local ctx = new_test_context()
-			create_folder(ctx.install_dir, "dep-plugin")
-			create_folder(ctx.install_dir, "main-plugin")
+			local dep_url = "https://github.com/user/dep-plugin"
+			local main_url = "https://github.com/user/main-plugin"
+			create_plugin_folder(ctx.install_dir, dep_url)
+			create_plugin_folder(ctx.install_dir, main_url)
 
 			local load_order = {}
 			local specs = {
-				["https://github.com/user/main-plugin"] = {
-					url = "https://github.com/user/main-plugin",
+				[main_url] = {
+					url = main_url,
 					dependencies = {
-						{ url = "https://github.com/user/dep-plugin" },
+						{ url = dep_url },
 					},
 					config = function()
 						table.insert(load_order, "main")
 					end,
 				},
-				["https://github.com/user/dep-plugin"] = {
-					url = "https://github.com/user/dep-plugin",
+				[dep_url] = {
+					url = dep_url,
 					config = function()
 						table.insert(load_order, "dep")
 					end,
@@ -115,12 +120,13 @@ describe("loader", function()
 		it("lazy loads plugin on filetype", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "ft-plugin")
+			local url = "https://github.com/user/ft-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/ft-plugin"] = {
-					url = "https://github.com/user/ft-plugin",
+				[url] = {
+					url = url,
 					ft = { "testft" }, -- Use fake filetype to avoid built-in ftplugin noise
 					config = function()
 						config_called = true
@@ -148,12 +154,13 @@ describe("loader", function()
 		it("does NOT load plugin on wrong filetype", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "ft-plugin")
+			local url = "https://github.com/user/ft-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/ft-plugin"] = {
-					url = "https://github.com/user/ft-plugin",
+				[url] = {
+					url = url,
 					ft = { "testft" }, -- Plugin should load on testft
 					config = function()
 						config_called = true
@@ -177,12 +184,13 @@ describe("loader", function()
 		it("lazy loads plugin on event", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "event-plugin")
+			local url = "https://github.com/user/event-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/event-plugin"] = {
-					url = "https://github.com/user/event-plugin",
+				[url] = {
+					url = url,
 					event = { "BufRead" },
 					config = function()
 						config_called = true
@@ -210,12 +218,13 @@ describe("loader", function()
 		it("does NOT load plugin on wrong event", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "event-plugin")
+			local url = "https://github.com/user/event-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/event-plugin"] = {
-					url = "https://github.com/user/event-plugin",
+				[url] = {
+					url = url,
 					event = { "BufRead" }, -- Plugin should load on BufRead
 					config = function()
 						config_called = true
@@ -239,13 +248,14 @@ describe("loader", function()
 		it("lazy loads plugin on key press", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "keys-plugin")
+			local url = "https://github.com/user/keys-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local key_pressed = false
 			local specs = {
-				["https://github.com/user/keys-plugin"] = {
-					url = "https://github.com/user/keys-plugin",
+				[url] = {
+					url = url,
 					keys = {
 						{
 							lhs = "<leader>t",
@@ -282,12 +292,13 @@ describe("loader", function()
 		it("does NOT load plugin on wrong key press", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "keys-plugin")
+			local url = "https://github.com/user/keys-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/keys-plugin"] = {
-					url = "https://github.com/user/keys-plugin",
+				[url] = {
+					url = url,
 					keys = {
 						{
 							lhs = "<leader>t", -- Plugin should load on <leader>t
@@ -319,12 +330,13 @@ describe("loader", function()
 		it("lazy loads plugin on command", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "cmd-plugin")
+			local url = "https://github.com/user/cmd-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/cmd-plugin"] = {
-					url = "https://github.com/user/cmd-plugin",
+				[url] = {
+					url = url,
 					cmd = { "TestCmd" },
 					config = function()
 						config_called = true
@@ -358,12 +370,13 @@ describe("loader", function()
 		it("does NOT load plugin on wrong command", function()
 			-- arrange
 			local ctx = new_test_context()
-			local plugin_path = create_folder(ctx.install_dir, "cmd-plugin-wrong")
+			local url = "https://github.com/user/cmd-plugin-wrong"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
 
 			local config_called = false
 			local specs = {
-				["https://github.com/user/cmd-plugin-wrong"] = {
-					url = "https://github.com/user/cmd-plugin-wrong",
+				[url] = {
+					url = url,
 					cmd = { "TestCmdWrong" }, -- Plugin should load on :TestCmdWrong
 					config = function()
 						config_called = true

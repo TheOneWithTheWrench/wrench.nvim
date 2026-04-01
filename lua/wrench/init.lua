@@ -93,7 +93,10 @@ function M.ensure_installed(specs, lockfile_path, install_dir)
 
 	for url, spec in pairs(specs) do
 		local name = utils.get_name(url)
-		local plugin_path = install_dir .. "/" .. name
+		local plugin_path, path_err = utils.resolve_plugin_path(install_dir, url)
+		if path_err then
+			return false, path_err
+		end
 
 		-- Clone if plugin doesn't exist
 		if vim.fn.isdirectory(plugin_path) == 0 then
@@ -152,6 +155,7 @@ function M.restore(lockfile_path, install_dir)
 	-- Build set of plugin names from lockfile
 	local locked_names = {}
 	for url, _ in pairs(lock_data) do
+		locked_names[utils.get_plugin_dir_name(url)] = url
 		locked_names[utils.get_name(url)] = url
 	end
 
@@ -168,7 +172,10 @@ function M.restore(lockfile_path, install_dir)
 	-- Restore plugins in lockfile
 	for url, sha in pairs(lock_data) do
 		local name = utils.get_name(url)
-		local plugin_path = install_dir .. "/" .. name
+		local plugin_path, path_err = utils.resolve_plugin_path(install_dir, url)
+		if path_err then
+			return false, path_err
+		end
 
 		-- Clone if plugin doesn't exist
 		if vim.fn.isdirectory(plugin_path) == 0 then
@@ -212,7 +219,10 @@ function M.sync(specs, lockfile_path, install_dir)
 
 	for url, spec in pairs(specs) do
 		local name = utils.get_name(url)
-		local plugin_path = install_dir .. "/" .. name
+		local plugin_path, path_err = utils.resolve_plugin_path(install_dir, url)
+		if path_err then
+			return false, path_err
+		end
 
 		-- Clone if plugin doesn't exist
 		if vim.fn.isdirectory(plugin_path) == 0 then
@@ -223,39 +233,14 @@ function M.sync(specs, lockfile_path, install_dir)
 			end
 		end
 
-		local target_ref = spec.commit or spec.tag
+		local target_ref, resolve_err = utils.resolve_ref(plugin_path, spec, lock_data[url])
+		if resolve_err then
+			return false, "Failed to resolve version for " .. name .. ": " .. resolve_err
+		end
 
-		if target_ref then
-			-- Spec has a pin - checkout to it
-			local checkout_success, checkout_err = git.checkout(plugin_path, target_ref)
-			if not checkout_success then
-				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
-			end
-		elseif spec.branch then
-			local resolved_ref, resolve_err = utils.resolve_branch_ref(plugin_path, spec.branch)
-			if resolve_err then
-				return false, "Failed to resolve branch for " .. name .. ": " .. resolve_err
-			end
-			local checkout_success, checkout_err = git.checkout(plugin_path, resolved_ref)
-			if not checkout_success then
-				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
-			end
-		elseif lock_data[url] then
-			-- No pin in spec - use lockfile
-			local checkout_success, checkout_err = git.checkout(plugin_path, lock_data[url])
-			if not checkout_success then
-				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
-			end
-		else
-			-- No pin, no lockfile - resolve to latest semver tag or remote head
-			local resolved_ref, resolve_err = utils.resolve_target_ref(plugin_path)
-			if resolve_err then
-				return false, "Failed to resolve version for " .. name .. ": " .. resolve_err
-			end
-			local checkout_success, checkout_err = git.checkout(plugin_path, resolved_ref)
-			if not checkout_success then
-				return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
-			end
+		local checkout_success, checkout_err = git.checkout(plugin_path, target_ref)
+		if not checkout_success then
+			return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
 		end
 
 		-- Update lockfile with current HEAD

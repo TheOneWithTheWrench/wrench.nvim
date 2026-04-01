@@ -33,7 +33,10 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 		end
 
 		local name = utils.get_name(url)
-		local plugin_path = install_dir .. "/" .. name
+		local plugin_path, path_err = utils.resolve_plugin_path(install_dir, url)
+		if path_err then
+			return nil, path_err
+		end
 
 		-- Skip if plugin doesn't exist
 		if vim.fn.isdirectory(plugin_path) == 0 then
@@ -49,10 +52,10 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 		local new_sha, resolve_err
 		if spec.branch then
 			print("Checking " .. name .. " for updates on " .. spec.branch .. "...")
-			new_sha, resolve_err = utils.resolve_branch_ref(plugin_path, spec.branch)
+			new_sha, resolve_err = utils.resolve_ref(plugin_path, spec)
 		else
 			print("Checking " .. name .. " for updates...")
-			new_sha, resolve_err = utils.resolve_target_ref(plugin_path)
+			new_sha, resolve_err = utils.resolve_ref(plugin_path, spec)
 		end
 		if resolve_err then
 			return nil, "Failed to resolve update for " .. name .. ": " .. resolve_err
@@ -195,7 +198,10 @@ function M.apply_updates(updates, lockfile_path, install_dir)
 	-- Checkout new commits
 	for url, info in pairs(updates) do
 		local name = utils.get_name(url)
-		local plugin_path = install_dir .. "/" .. name
+		local plugin_path, path_err = utils.resolve_plugin_path(install_dir, url)
+		if path_err then
+			return false, path_err
+		end
 
 		print("Updating " .. name .. "...")
 		local checkout_success, checkout_err = git.checkout(plugin_path, info.new_sha)

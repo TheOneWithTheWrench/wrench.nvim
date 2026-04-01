@@ -27,16 +27,6 @@ local function scan_directory(path)
 	return files
 end
 
----Converts a file path to a require-able module name.
----@param file_path string Absolute path to lua file.
----@param base_path string Base lua directory path.
----@return string module_name The module name for require().
-local function path_to_module(file_path, base_path)
-	local relative = file_path:sub(#base_path + 2)
-	local module = relative:gsub("%.lua$", ""):gsub("/", ".")
-	return module
-end
-
 ---Checks if a table is a single PluginSpec (has url field).
 ---@param tbl table The table to check.
 ---@return boolean is_single True if it's a single PluginSpec.
@@ -81,16 +71,19 @@ function M.scan(import_path, base_path)
 	local all_specs = {}
 
 	for _, file in ipairs(files) do
-		local module_name = path_to_module(file, base_path)
+		local chunk, load_err = loadfile(file)
+		if not chunk then
+			return nil, "Failed to load " .. file .. ": " .. load_err
+		end
 
-		local ok, result = pcall(require, module_name)
+		local ok, result = pcall(chunk)
 		if not ok then
-			return nil, "Failed to require " .. module_name .. ": " .. result
+			return nil, "Failed to execute " .. file .. ": " .. result
 		end
 
 		if result ~= nil then
 			if type(result) ~= "table" then
-				return nil, "Invalid spec in " .. module_name .. ": expected table, got " .. type(result)
+				return nil, "Invalid spec in " .. file .. ": expected table, got " .. type(result)
 			end
 
 			if is_single_spec(result) then

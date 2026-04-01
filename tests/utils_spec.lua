@@ -13,6 +13,31 @@ describe("utils", function()
 		end)
 	end)
 
+	describe("get_plugin_dir_name", function()
+		it("avoids collisions for matching repo names", function()
+			local first = utils.get_plugin_dir_name("https://github.com/user/plugin")
+			local second = utils.get_plugin_dir_name("https://gitlab.com/other/plugin")
+
+			assert.are_not.equal(first, second)
+		end)
+	end)
+
+	describe("resolve_plugin_path", function()
+		it("migrates legacy basename installs", function()
+			local dir = vim.fn.tempname()
+			local legacy_path = dir .. "/plugin"
+			vim.fn.mkdir(legacy_path, "p")
+
+			local plugin_path, err = utils.resolve_plugin_path(dir, "https://github.com/user/plugin")
+
+			assert.is_nil(err)
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path))
+			assert.are.equal(0, vim.fn.isdirectory(legacy_path))
+
+			vim.fn.delete(dir, "rf")
+		end)
+	end)
+
 	describe("parse_semver", function()
 		it("parses v1.2.3 format", function()
 			local version = utils.parse_semver("v1.2.3")
@@ -78,7 +103,7 @@ describe("utils", function()
 		end)
 	end)
 
-	describe("resolve_target_ref", function()
+	describe("resolve_ref", function()
 		local git = require("wrench.git")
 
 		-- Test helpers (borrowed from git_spec.lua)
@@ -130,7 +155,7 @@ describe("utils", function()
 			local v2_sha = git.get_head(source)
 
 			-- act
-			local sha, err = utils.resolve_target_ref(clone)
+			local sha, err = utils.resolve_ref(clone, {})
 
 			-- assert
 			assert.is_nil(err)
@@ -140,7 +165,7 @@ describe("utils", function()
 			cleanup(dir)
 		end)
 
-		it("resolves to remote head when no semver tags", function()
+		it("uses locked sha when provided", function()
 			-- arrange
 			local dir = new_test_dir()
 			local source = dir .. "/source"
@@ -148,14 +173,60 @@ describe("utils", function()
 
 			init_repo(source,
 				with_commit("initial"),
-				with_tag("random-tag")
+				with_commit("second")
 			)
+
+			git.clone(source, clone)
+			local first_sha = git.get_head(source, "HEAD~1")
+
+			-- act
+			local sha, err = utils.resolve_ref(clone, {}, first_sha)
+
+			-- assert
+			assert.is_nil(err)
+			assert.are.equal(first_sha, sha)
+
+			cleanup(dir)
+		end)
+
+		it("resolves tracked branch to remote branch head", function()
+			-- arrange
+			local dir = new_test_dir()
+			local source = dir .. "/source"
+			local clone = dir .. "/clone"
+
+			init_repo(source, with_commit("initial"))
+			vim.system({ "git", "checkout", "-b", "stable" }, { cwd = source }):wait()
+			vim.system({ "git", "commit", "--allow-empty", "-m", "stable" }, { cwd = source }):wait()
+			local stable_sha = git.get_head(source)
+
+			git.clone(source, clone)
+
+			-- act
+			local sha, err = utils.resolve_ref(clone, { branch = "stable" })
+
+			-- assert
+			assert.is_nil(err)
+			assert.are.equal(stable_sha, sha)
+
+			cleanup(dir)
+		end)
+
+		it("resolves to remote default branch when no semver tags", function()
+			-- arrange
+			local dir = new_test_dir()
+			local source = dir .. "/source"
+			local clone = dir .. "/clone"
+
+			init_repo(source, with_commit("initial"))
+			vim.system({ "git", "checkout", "-b", "stable" }, { cwd = source }):wait()
+			vim.system({ "git", "commit", "--allow-empty", "-m", "stable" }, { cwd = source }):wait()
 
 			git.clone(source, clone)
 			local head_sha = git.get_head(source)
 
 			-- act
-			local sha, err = utils.resolve_target_ref(clone)
+			local sha, err = utils.resolve_ref(clone, {})
 
 			-- assert
 			assert.is_nil(err)
@@ -182,7 +253,7 @@ describe("utils", function()
 			local v1_sha = git.get_head(source, "v1.0.0")
 
 			-- act
-			local sha, err = utils.resolve_target_ref(clone)
+			local sha, err = utils.resolve_ref(clone, {})
 
 			-- assert
 			assert.is_nil(err)
@@ -199,7 +270,7 @@ describe("utils", function()
 			vim.fn.mkdir(not_repo, "p")
 
 			-- act
-			local sha, err = utils.resolve_target_ref(not_repo)
+			local sha, err = utils.resolve_ref(not_repo, {})
 
 			-- assert
 			assert.is_nil(sha)

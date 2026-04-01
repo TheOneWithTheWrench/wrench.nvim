@@ -49,16 +49,6 @@ return {
 
 Nested directories are supported. Each file can return a single plugin or a list of plugins.
 
-### Alternative: inline specs
-
-You can also define plugins directly with `add()`:
-
-```lua
-require("wrench").add({
-    { url = "https://github.com/folke/tokyonight.nvim", branch = "main" },
-})
-```
-
 ## Plugin spec
 
 ```lua
@@ -160,11 +150,14 @@ In the future, Wrench might tackle this complexity. But until I have thought of 
 
 ```lua
 {
-    url = "https://github.com/nvim-telescope/telescope-fzf-native.nvim",
-    branch = "main",
-    config = function()
-        local install_path = vim.fn.stdpath("data") .. "/wrench/plugins/telescope-fzf-native.nvim"
-        local lib = install_path .. "/build/libfzf.so"
+	url = "https://github.com/nvim-telescope/telescope-fzf-native.nvim",
+	branch = "main",
+	config = function()
+		local install_path = require("wrench.utils").get_plugin_path(
+			vim.fn.stdpath("data") .. "/wrench/plugins",
+			"https://github.com/nvim-telescope/telescope-fzf-native.nvim"
+		)
+		local lib = install_path .. "/build/libfzf.so"
 
         if vim.uv.fs_stat(lib) == nil then
             vim.fn.system({ "make", "-C", install_path })
