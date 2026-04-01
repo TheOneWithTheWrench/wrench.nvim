@@ -1,5 +1,13 @@
 local M = {}
 
+local function normalize_url(url)
+	if not url then
+		return nil
+	end
+
+	return url:gsub("/$", ""):gsub("%.git$", "")
+end
+
 ---Extracts the plugin name from a URL.
 ---@param url string The full URL (e.g., "https://github.com/owner/plugin").
 ---@return string name The plugin name (e.g., "plugin").
@@ -36,9 +44,17 @@ function M.resolve_plugin_path(install_dir, url)
 
 	local legacy_path = install_dir .. "/" .. M.get_name(url)
 	if vim.fn.isdirectory(legacy_path) == 1 then
-		local rename_result = vim.fn.rename(legacy_path, plugin_path)
-		if rename_result ~= 0 then
-			return nil, "Failed to migrate plugin path for " .. url
+		local git = require("wrench.git")
+		local remote_url, remote_err = git.get_remote_url(legacy_path)
+		if remote_err then
+			return nil, "Failed to inspect legacy plugin path for " .. url .. ": " .. remote_err
+		end
+
+		if normalize_url(remote_url) == normalize_url(url) then
+			local rename_result = vim.fn.rename(legacy_path, plugin_path)
+			if rename_result ~= 0 then
+				return nil, "Failed to migrate plugin path for " .. url
+			end
 		end
 	end
 

@@ -9,6 +9,37 @@ local loaded = {}
 ---@type table<string, boolean>
 local loading_setup = {}
 
+local function source_plugin_file(path)
+	vim.cmd("source " .. vim.fn.fnameescape(path))
+end
+
+local function clear_stub_commands(cmd_names)
+	if not cmd_names then
+		return
+	end
+
+	for _, cmd_name in ipairs(cmd_names) do
+		pcall(vim.api.nvim_del_user_command, cmd_name)
+	end
+end
+
+local function replay_command(cmd_name, opts)
+	local cmd = {
+		cmd = cmd_name,
+		args = opts.fargs,
+		bang = opts.bang,
+		mods = opts.smods,
+	}
+
+	if opts.range and opts.range > 0 then
+		cmd.range = { opts.line1, opts.line2 }
+	elseif opts.count and opts.count >= 0 then
+		cmd.count = opts.count
+	end
+
+	vim.api.nvim_cmd(cmd, {})
+end
+
 ---Loads a plugin immediately (adds to rtp, runs config).
 ---@param url string The plugin URL.
 ---@param spec table The plugin spec.
@@ -31,7 +62,7 @@ local function load_plugin_now(url, spec, specs, install_dir)
 		end
 	end
 
-	local plugin_path = assert(utils.resolve_plugin_path(install_dir, url))
+	local plugin_path = utils.get_plugin_path(install_dir, url)
 	vim.opt.rtp:prepend(plugin_path)
 
 	-- Source plugin/ files
@@ -39,7 +70,7 @@ local function load_plugin_now(url, spec, specs, install_dir)
 	if vim.fn.isdirectory(plugin_dir) == 1 then
 		for _, file in ipairs(vim.fn.readdir(plugin_dir)) do
 			if file:match("%.vim$") then
-				vim.cmd("source " .. plugin_dir .. "/" .. file)
+				source_plugin_file(plugin_dir .. "/" .. file)
 			elseif file:match("%.lua$") then
 				dofile(plugin_dir .. "/" .. file)
 			end
@@ -123,10 +154,10 @@ function M.setup_loading(specs, install_dir)
 			if spec.cmd then
 				for _, cmd_name in ipairs(spec.cmd) do
 					vim.api.nvim_create_user_command(cmd_name, function(opts)
-						vim.api.nvim_del_user_command(cmd_name)
+						clear_stub_commands(spec.cmd)
 						load_plugin_now(url, spec, specs, install_dir)
-						vim.cmd(cmd_name .. " " .. opts.args)
-					end, { nargs = "*" })
+						replay_command(cmd_name, opts)
+					end, { nargs = "*", bang = true, range = true, bar = true })
 				end
 			end
 		end

@@ -113,4 +113,19 @@ function M.get_remote_default_head(path)
 	return sha, nil
 end
 
+---Gets the configured remote origin URL.
+---@param path string The repository path.
+---@return string? url The remote origin URL, or nil if failed.
+---@return string? error Error message if operation failed.
+function M.get_remote_url(path)
+	local result = vim.system({ "git", "config", "--get", "remote.origin.url" }, { cwd = path }):wait()
+
+	if result.code ~= 0 then
+		return nil, "Failed to get remote url: " .. (result.stderr or "unknown error")
+	end
+
+	local url = vim.trim(result.stdout)
+	return url, nil
+end
+
 return M

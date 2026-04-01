@@ -396,4 +396,35 @@ describe("git", function()
 			cleanup(dir)
 		end)
 	end)
+
+	describe("get_remote_url", function()
+		it("returns remote origin url", function()
+			local dir = new_test_dir()
+			local source = dir .. "/source"
+			local clone = dir .. "/clone"
+
+			init_repo(source, with_commit("initial"))
+			git.clone(source, clone)
+
+			local remote_url, err = git.get_remote_url(clone)
+
+			assert.is_nil(err)
+			assert.are.equal(source, remote_url)
+
+			cleanup(dir)
+		end)
+
+		it("returns error when path is not a git repository", function()
+			local dir = new_test_dir()
+			local not_repo = dir .. "/notrepo"
+			vim.fn.mkdir(not_repo, "p")
+
+			local remote_url, err = git.get_remote_url(not_repo)
+
+			assert.is_nil(remote_url)
+			assert.is_not_nil(err)
+
+			cleanup(dir)
+		end)
+	end)
 end)

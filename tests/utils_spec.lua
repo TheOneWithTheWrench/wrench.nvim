@@ -24,15 +24,62 @@ describe("utils", function()
 
 	describe("resolve_plugin_path", function()
 		it("migrates legacy basename installs", function()
+			local git = require("wrench.git")
 			local dir = vim.fn.tempname()
-			local legacy_path = dir .. "/plugin"
-			vim.fn.mkdir(legacy_path, "p")
+			local source = dir .. "/source-repo"
+			local install_dir = dir .. "/plugins"
+			local init_repo = function(path)
+				vim.fn.mkdir(path, "p")
+				vim.system({ "git", "init" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "user.email", "test@test.com" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "user.name", "Test" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "commit.gpgsign", "false" }, { cwd = path }):wait()
+				vim.system({ "git", "commit", "--allow-empty", "-m", "initial" }, { cwd = path }):wait()
+			end
 
-			local plugin_path, err = utils.resolve_plugin_path(dir, "https://github.com/user/plugin")
+			init_repo(source)
+			vim.fn.mkdir(install_dir, "p")
+			local legacy_path = install_dir .. "/source-repo"
+			git.clone(source, legacy_path)
+
+			local plugin_path, err = utils.resolve_plugin_path(install_dir, source)
 
 			assert.is_nil(err)
 			assert.are.equal(1, vim.fn.isdirectory(plugin_path))
 			assert.are.equal(0, vim.fn.isdirectory(legacy_path))
+
+			vim.fn.delete(dir, "rf")
+		end)
+
+		it("does not migrate legacy path when origin url does not match", function()
+			local git = require("wrench.git")
+			local dir = vim.fn.tempname()
+			local source = dir .. "/source"
+			local other_source = dir .. "/other/source"
+			local install_dir = dir .. "/plugins"
+			local legacy_path = install_dir .. "/source"
+
+			vim.fn.mkdir(install_dir, "p")
+
+			local init_repo = function(path)
+				vim.fn.mkdir(path, "p")
+				vim.system({ "git", "init" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "user.email", "test@test.com" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "user.name", "Test" }, { cwd = path }):wait()
+				vim.system({ "git", "config", "--local", "commit.gpgsign", "false" }, { cwd = path }):wait()
+				vim.system({ "git", "commit", "--allow-empty", "-m", "initial" }, { cwd = path }):wait()
+			end
+
+			init_repo(source)
+			init_repo(other_source)
+			git.clone(other_source, legacy_path)
+
+			local plugin_path, err = utils.resolve_plugin_path(install_dir, source)
+
+			assert.is_nil(err)
+			assert.are.equal(utils.get_plugin_path(install_dir, source), plugin_path)
+			assert.are.equal(1, vim.fn.isdirectory(legacy_path))
+			assert.are.equal(0, vim.fn.isdirectory(plugin_path))
 
 			vim.fn.delete(dir, "rf")
 		end)

@@ -216,6 +216,27 @@ function M.sync(specs, lockfile_path, install_dir)
 	end
 
 	local lock_changed = false
+	local desired_names = {}
+
+	for url, _ in pairs(specs) do
+		desired_names[utils.get_plugin_dir_name(url)] = true
+		desired_names[utils.get_name(url)] = true
+	end
+
+	if vim.fn.isdirectory(install_dir) == 1 then
+		for _, name in ipairs(vim.fn.readdir(install_dir)) do
+			if not desired_names[name] then
+				vim.fn.delete(install_dir .. "/" .. name, "rf")
+			end
+		end
+	end
+
+	for url, _ in pairs(lock_data) do
+		if not specs[url] then
+			lock_data[url] = nil
+			lock_changed = true
+		end
+	end
 
 	for url, spec in pairs(specs) do
 		local name = utils.get_name(url)

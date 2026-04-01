@@ -328,6 +328,41 @@ describe("wrench", function()
 			ctx.cleanup()
 		end)
 
+		it("removes plugins and lockfile entries not in specs", function()
+			local ctx = new_test_context()
+			init_repo(ctx.source, with_commit("initial"))
+			local sha = git.get_head(ctx.source)
+
+			local plugin1 = "https://github.com/user/plugin1"
+			local plugin2 = "https://github.com/user/plugin2"
+
+			vim.fn.mkdir(ctx.install_dir, "p")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, plugin1))
+			git.clone(ctx.source, plugin_path(ctx.install_dir, plugin2))
+
+			lockfile.write(ctx.lockfile_path, {
+				[plugin1] = sha,
+				[plugin2] = sha,
+			})
+
+			local specs = {
+				[plugin1] = { commit = sha },
+			}
+
+			local success, err = wrench.sync(specs, ctx.lockfile_path, ctx.install_dir)
+
+			assert.is_true(success)
+			assert.is_nil(err)
+			assert.are.equal(1, vim.fn.isdirectory(plugin_path(ctx.install_dir, plugin1)))
+			assert.are.equal(0, vim.fn.isdirectory(plugin_path(ctx.install_dir, plugin2)))
+
+			local lock_data = lockfile.read(ctx.lockfile_path)
+			assert.are.equal(sha, lock_data[plugin1])
+			assert.is_nil(lock_data[plugin2])
+
+			ctx.cleanup()
+		end)
+
 		it("syncs existing plugin with branch pin to latest remote branch head", function()
 			-- arrange
 			local ctx = new_test_context()

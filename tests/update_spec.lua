@@ -379,4 +379,40 @@ describe("update", function()
 			assert.is_truthy(header:match("BREAKING") or header:match("WARNING") or header:match("MAJOR"))
 		end)
 	end)
+
+	describe("apply_updates", function()
+		it("does not write lockfile when checkout fails", function()
+			local ctx = new_test_context()
+			init_repo(ctx.source, with_commit("initial"))
+			local old_sha = git.get_head(ctx.source)
+
+			vim.fn.mkdir(ctx.install_dir, "p")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
+
+			lockfile.write(ctx.lockfile_path, {
+				[ctx.source] = old_sha,
+			})
+
+			local success, err = update.apply_updates({
+				[ctx.source] = {
+					url = ctx.source,
+					old_sha = old_sha,
+					new_sha = string.rep("0", 40),
+					commits = { "deadbee broken update" },
+					is_major_bump = false,
+				},
+			}, ctx.lockfile_path, ctx.install_dir)
+
+			assert.is_false(success)
+			assert.is_not_nil(err)
+
+			local lock_data = lockfile.read(ctx.lockfile_path)
+			assert.are.equal(old_sha, lock_data[ctx.source])
+
+			local current_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
+			assert.are.equal(old_sha, current_sha)
+
+			ctx.cleanup()
+		end)
+	end)
 end)

@@ -22,6 +22,10 @@ describe("loader", function()
 		return plugin_path
 	end
 
+	local write_file = function(path, content)
+		vim.fn.writefile(vim.split(content, "\n"), path)
+	end
+
 	local assert_in_rtp = function(plugin_path)
 		local rtp = vim.opt.rtp:get()
 		for _, path in ipairs(rtp) do
@@ -367,6 +371,71 @@ describe("loader", function()
 			ctx.cleanup()
 		end)
 
+		it("removes sibling command stubs before loading plugin", function()
+			local ctx = new_test_context()
+			local url = "https://github.com/user/cmd-plugin-siblings"
+			create_plugin_folder(ctx.install_dir, url)
+
+			local command_calls = {}
+			local specs = {
+				[url] = {
+					url = url,
+					cmd = { "FirstCmd", "SecondCmd" },
+					config = function()
+						vim.api.nvim_create_user_command("FirstCmd", function()
+							table.insert(command_calls, "first")
+						end, {})
+						vim.api.nvim_create_user_command("SecondCmd", function()
+							table.insert(command_calls, "second")
+						end, {})
+					end,
+				},
+			}
+
+			loader.setup_loading(specs, ctx.install_dir)
+
+			vim.cmd("FirstCmd")
+			vim.cmd("SecondCmd")
+
+			assert.are.same({ "first", "second" }, command_calls)
+
+			vim.api.nvim_del_user_command("FirstCmd")
+			vim.api.nvim_del_user_command("SecondCmd")
+			ctx.cleanup()
+		end)
+
+		it("replays lazy command with bang and modifiers", function()
+			local ctx = new_test_context()
+			local url = "https://github.com/user/cmd-plugin-replay"
+			create_plugin_folder(ctx.install_dir, url)
+
+			local observed
+			local specs = {
+				[url] = {
+					url = url,
+					cmd = { "ReplayCmd" },
+					config = function()
+						vim.api.nvim_create_user_command("ReplayCmd", function(opts)
+							observed = {
+								args = opts.args,
+								bang = opts.bang,
+								mods = opts.mods,
+							}
+						end, { nargs = "*", bang = true })
+					end,
+				},
+			}
+
+			loader.setup_loading(specs, ctx.install_dir)
+
+			vim.cmd("silent ReplayCmd! foo bar")
+
+			assert.are.same({ args = "foo bar", bang = true, mods = "silent" }, observed)
+
+			vim.api.nvim_del_user_command("ReplayCmd")
+			ctx.cleanup()
+		end)
+
 		it("does NOT load plugin on wrong command", function()
 			-- arrange
 			local ctx = new_test_context()
@@ -396,6 +465,28 @@ describe("loader", function()
 
 			-- cleanup stub command (still exists since plugin wasn't loaded)
 			vim.api.nvim_del_user_command("TestCmdWrong")
+			ctx.cleanup()
+		end)
+
+		it("sources vim plugin files with escaped filenames", function()
+			local ctx = new_test_context()
+			local url = "https://github.com/user/space-plugin"
+			local plugin_path = create_plugin_folder(ctx.install_dir, url)
+			vim.fn.mkdir(plugin_path .. "/plugin", "p")
+			write_file(plugin_path .. "/plugin/pipe|file.vim", "let g:wrench_space_file_loaded = 1")
+
+			vim.g.wrench_space_file_loaded = nil
+			local specs = {
+				[url] = {
+					url = url,
+				},
+			}
+
+			loader.setup_loading(specs, ctx.install_dir)
+
+			assert.are.equal(1, vim.g.wrench_space_file_loaded)
+
+			vim.g.wrench_space_file_loaded = nil
 			ctx.cleanup()
 		end)
 	end)

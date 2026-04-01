@@ -49,14 +49,12 @@ function M.collect_updates(specs, lockfile_path, install_dir)
 			goto continue
 		end
 
-		local new_sha, resolve_err
-		if spec.branch then
-			print("Checking " .. name .. " for updates on " .. spec.branch .. "...")
-			new_sha, resolve_err = utils.resolve_ref(plugin_path, spec)
-		else
-			print("Checking " .. name .. " for updates...")
-			new_sha, resolve_err = utils.resolve_ref(plugin_path, spec)
-		end
+		local message = spec.branch
+			and ("Checking " .. name .. " for updates on " .. spec.branch .. "...")
+			or ("Checking " .. name .. " for updates...")
+		print(message)
+
+		local new_sha, resolve_err = utils.resolve_ref(plugin_path, spec)
 		if resolve_err then
 			return nil, "Failed to resolve update for " .. name .. ": " .. resolve_err
 		end
@@ -185,16 +183,6 @@ function M.apply_updates(updates, lockfile_path, install_dir)
 		return false, read_err
 	end
 
-	-- Update lockfile
-	for url, info in pairs(updates) do
-		lock_data[url] = info.new_sha
-	end
-
-	local write_success, write_err = lockfile.write(lockfile_path, lock_data)
-	if not write_success then
-		return false, write_err
-	end
-
 	-- Checkout new commits
 	for url, info in pairs(updates) do
 		local name = utils.get_name(url)
@@ -208,6 +196,15 @@ function M.apply_updates(updates, lockfile_path, install_dir)
 		if not checkout_success then
 			return false, "Failed to checkout " .. name .. ": " .. (checkout_err or "unknown error")
 		end
+	end
+
+	for url, info in pairs(updates) do
+		lock_data[url] = info.new_sha
+	end
+
+	local write_success, write_err = lockfile.write(lockfile_path, lock_data)
+	if not write_success then
+		return false, write_err
 	end
 
 	return true, nil
