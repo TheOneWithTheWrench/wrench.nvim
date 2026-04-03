@@ -1,5 +1,7 @@
 # Wrench
 
+[![CI](https://github.com/TheOneWithTheWrench/wrench.nvim/actions/workflows/ci.yml/badge.svg)](https://github.com/TheOneWithTheWrench/wrench.nvim/actions/workflows/ci.yml)
+
 > ⚠️ **Disclaimer**: This project was built as a learning exercise for Lua and Neovim plugin development. There's no good reason to use this over established plugin managers like [lazy.nvim](https://github.com/folke/lazy.nvim). Use at your own risk!
 
 A minimal Neovim plugin manager.
