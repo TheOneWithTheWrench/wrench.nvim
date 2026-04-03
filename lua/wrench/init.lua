@@ -185,6 +185,11 @@ function M.restore(lockfile_path, install_dir)
 			end
 		end
 
+		local fetch_success, fetch_err = git.fetch(plugin_path)
+		if not fetch_success then
+			return false, "Failed to fetch " .. name .. ": " .. (fetch_err or "unknown error")
+		end
+
 		-- Checkout to locked commit
 		local checkout_success, checkout_err = git.checkout(plugin_path, sha)
 		if not checkout_success then

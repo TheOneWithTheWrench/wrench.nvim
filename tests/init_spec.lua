@@ -82,6 +82,35 @@ describe("wrench", function()
 			ctx.cleanup()
 		end)
 
+		it("fetches before restoring when installed plugin is stale", function()
+			-- arrange
+			local ctx = new_test_context()
+			init_repo(ctx.source, with_commit("initial"))
+			local first_sha = git.get_head(ctx.source)
+
+			vim.fn.mkdir(ctx.install_dir, "p")
+			git.clone(ctx.source, plugin_path(ctx.install_dir, ctx.source))
+
+			vim.system({ "git", "commit", "--allow-empty", "-m", "second" }, { cwd = ctx.source }):wait()
+			local second_sha = git.get_head(ctx.source)
+
+			lockfile.write(ctx.lockfile_path, {
+				[ctx.source] = second_sha,
+			})
+
+			-- act
+			local success, err = wrench.restore(ctx.lockfile_path, ctx.install_dir)
+
+			-- assert
+			assert.is_true(success)
+			assert.is_nil(err)
+			local after_sha = git.get_head(plugin_path(ctx.install_dir, ctx.source))
+			assert.are.equal(second_sha, after_sha)
+			assert.are_not.equal(first_sha, after_sha)
+
+			ctx.cleanup()
+		end)
+
 		it("clones and restores plugin when plugin does not exist", function()
 			-- arrange
 			local ctx = new_test_context()
