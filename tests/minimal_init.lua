@@ -1,8 +1,12 @@
--- Minimal init for running tests
--- Find project root relative to this file
-local root = vim.fn.fnamemodify(vim.fn.getcwd(), ":p")
+local source = debug.getinfo(1, "S").source:sub(2)
+local root = vim.fn.fnamemodify(source, ":p:h:h")
+local plenary_path = root .. "/deps/plenary.nvim"
+
+if vim.uv.fs_stat(plenary_path) == nil then
+	error("Missing test dependency at " .. plenary_path .. ". Run `make test` first.")
+end
+
+vim.opt.rtp:prepend(plenary_path)
 vim.opt.rtp:prepend(root)
-vim.opt.rtp:append(require("wrench.utils").get_plugin_path(
-	vim.fn.stdpath("data") .. "/wrench/plugins",
-	"https://github.com/nvim-lua/plenary.nvim"
-))
+
+vim.cmd("runtime plugin/plenary.vim")

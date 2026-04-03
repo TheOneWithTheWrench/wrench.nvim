@@ -95,6 +95,20 @@ If a dependency needs configuration (branch, tag, config function), create a ded
 | `:WrenchRestore` | Restore plugins to lockfile |
 | `:WrenchGetRegistered` | Show registered plugins |
 
+## Testing
+
+Tests use a repo-local copy of `plenary.nvim` instead of anything from your personal Neovim setup.
+
+```bash
+make test
+```
+
+To run one spec file:
+
+```bash
+make test_file FILE=tests/init_spec.lua
+```
+
 ## Lazy loading
 
 Plugins with `ft`, `event`, `keys`, or `cmd` specified will only load when triggered:
