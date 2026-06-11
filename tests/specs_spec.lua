@@ -131,6 +131,56 @@ return {
 			ctx.cleanup()
 		end)
 
+		it("returns an error for a single dependency ref", function()
+			-- arrange
+			local ctx = new_test_context()
+			local spec_file = ctx.plugins_dir .. "/plugin.lua"
+			local spec_content = [[
+return {
+	url = "https://github.com/user/plugin",
+	dependencies = {
+		url = "https://github.com/user/dep1",
+	}
+}
+]]
+			write_spec_file(spec_file, spec_content)
+
+			-- act
+			local result, err = specs.scan("plugins", ctx.lua_dir)
+
+			-- assert
+			assert.is_nil(result)
+			assert.is_not_nil(err)
+			assert.is_truthy(err:match("expected list of dependency refs"))
+
+			ctx.cleanup()
+		end)
+
+		it("returns an error for malformed dependency tables", function()
+			-- arrange
+			local ctx = new_test_context()
+			local spec_file = ctx.plugins_dir .. "/plugin.lua"
+			local spec_content = [[
+return {
+	url = "https://github.com/user/plugin",
+	dependencies = {
+		name = "dep1",
+	}
+}
+]]
+			write_spec_file(spec_file, spec_content)
+
+			-- act
+			local result, err = specs.scan("plugins", ctx.lua_dir)
+
+			-- assert
+			assert.is_nil(result)
+			assert.is_not_nil(err)
+			assert.is_truthy(err:match("Invalid dependencies"))
+
+			ctx.cleanup()
+		end)
+
 		it("dependency with own config file keeps full spec", function()
 			-- arrange
 			local ctx = new_test_context()

@@ -34,6 +34,40 @@ local function is_single_spec(tbl)
 	return tbl.url ~= nil
 end
 
+---Validates spec.dependencies.
+---@param spec table The plugin spec to validate.
+---@param context string The file/spec context used in error messages.
+---@return string? error Error message if invalid.
+local function validate_dependencies(spec, context)
+	if spec.dependencies == nil then
+		return nil
+	end
+
+	if type(spec.dependencies) ~= "table" then
+		return "Invalid dependencies in " .. context .. ": expected table, got " .. type(spec.dependencies)
+	end
+
+	if spec.dependencies.url ~= nil then
+		return "Invalid dependencies in " .. context .. ': expected list of dependency refs, got single ref. Use { { url = "..." } }'
+	end
+
+	if next(spec.dependencies) ~= nil and #spec.dependencies == 0 then
+		return "Invalid dependencies in " .. context .. ": expected list of dependency refs"
+	end
+
+	for index, dep in ipairs(spec.dependencies) do
+		if type(dep) ~= "table" then
+			return "Invalid dependency in " .. context .. " dependency #" .. index .. ": expected table with url field, got " .. type(dep)
+		end
+
+		if type(dep.url) ~= "string" or dep.url == "" then
+			return "Invalid dependency in " .. context .. " dependency #" .. index .. ": expected non-empty url string"
+		end
+	end
+
+	return nil
+end
+
 ---Collects dependency URLs from a spec into the spec map (as bare refs).
 ---@param spec_map table<string, table> The map to collect into.
 ---@param spec table The spec whose dependencies to collect.
@@ -87,10 +121,20 @@ function M.scan(import_path, base_path)
 			end
 
 			if is_single_spec(result) then
+				local dep_err = validate_dependencies(result, file)
+				if dep_err then
+					return nil, dep_err
+				end
+
 				table.insert(all_specs, result)
 			else
 				-- List of specs
-				for _, spec in ipairs(result) do
+				for index, spec in ipairs(result) do
+					local dep_err = validate_dependencies(spec, file .. " spec #" .. index)
+					if dep_err then
+						return nil, dep_err
+					end
+
 					table.insert(all_specs, spec)
 				end
 			end
