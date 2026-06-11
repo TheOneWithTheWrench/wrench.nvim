@@ -127,6 +127,9 @@ return {
 			assert.is_not_nil(result["https://github.com/user/plugin"])
 			assert.is_not_nil(result["https://github.com/user/dep1"])
 			assert.is_not_nil(result["https://github.com/user/dep2"])
+			assert.is_true(result["https://github.com/user/dep1"].__wrench_dependency_only)
+			assert.is_true(result["https://github.com/user/dep2"].__wrench_dependency_only)
+			assert.is_nil(result["https://github.com/user/plugin"].__wrench_dependency_only)
 
 			ctx.cleanup()
 		end)
@@ -250,6 +253,7 @@ return {
 			-- Plugin B should have full spec (config function), not just bare url
 			assert.is_not_nil(result["https://github.com/user/plugin_b"].config)
 			assert.are.equal("function", type(result["https://github.com/user/plugin_b"].config))
+			assert.is_nil(result["https://github.com/user/plugin_b"].__wrench_dependency_only)
 
 			ctx.cleanup()
 		end)

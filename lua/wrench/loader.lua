@@ -88,6 +88,10 @@ end
 ---@param install_dir string Directory where plugins are installed.
 function M.setup_loading(specs, install_dir)
 	for url, spec in pairs(specs) do
+		if spec.__wrench_dependency_only then
+			goto continue
+		end
+
 		if loading_setup[url] then
 			goto continue
 		end

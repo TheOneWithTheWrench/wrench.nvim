@@ -138,7 +138,7 @@ local function collect_dependencies(spec_map, spec)
 		local url = dep.url
 		if not spec_map[url] then
 			-- Add as bare spec (just url, no config)
-			spec_map[url] = { url = url }
+			spec_map[url] = { url = url, __wrench_dependency_only = true }
 		end
 	end
 end

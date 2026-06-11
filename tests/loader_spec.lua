@@ -121,6 +121,62 @@ describe("loader", function()
 			ctx.cleanup()
 		end)
 
+		it("loads dependency-only specs only when a dependent plugin loads", function()
+			-- arrange
+			local ctx = new_test_context()
+			local dep_url = "https://github.com/user/dep-only-plugin"
+			local main_url = "https://github.com/user/lazy-main-plugin"
+			local dep_path = create_plugin_folder(ctx.install_dir, dep_url)
+			local main_path = create_plugin_folder(ctx.install_dir, main_url)
+
+			local load_order = {}
+			local key_pressed = false
+			local specs = {
+				[main_url] = {
+					url = main_url,
+					dependencies = {
+						{ url = dep_url },
+					},
+					keys = {
+						{
+							lhs = "<leader>d",
+							rhs = function()
+								key_pressed = true
+							end,
+							mode = { "n" },
+						},
+					},
+					config = function()
+						table.insert(load_order, "main")
+					end,
+				},
+				[dep_url] = {
+					url = dep_url,
+					__wrench_dependency_only = true,
+					config = function()
+						table.insert(load_order, "dep")
+					end,
+				},
+			}
+
+			-- act
+			loader.setup_loading(specs, ctx.install_dir)
+
+			-- assert - neither the lazy plugin nor its dependency should load during setup
+			assert.is_false(assert_in_rtp(dep_path), "Dependency should not be in rtp before dependent loads")
+			assert.is_false(assert_in_rtp(main_path), "Main plugin should not be in rtp before lazy trigger")
+			assert.are.equal(0, #load_order)
+
+			vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<leader>d", true, false, true), "x", false)
+
+			assert.is_true(assert_in_rtp(dep_path), "Dependency should be in rtp after dependent loads")
+			assert.is_true(assert_in_rtp(main_path), "Main plugin should be in rtp after lazy trigger")
+			assert.are.same({ "dep", "main" }, load_order)
+			assert.is_true(key_pressed, "Key handler should be executed")
+
+			ctx.cleanup()
+		end)
+
 		it("lazy loads plugin on filetype", function()
 			-- arrange
 			local ctx = new_test_context()
