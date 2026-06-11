@@ -181,6 +181,37 @@ return {
 			ctx.cleanup()
 		end)
 
+		it("returns an error when key mode is not a table", function()
+			-- arrange
+			local ctx = new_test_context()
+			local spec_file = ctx.plugins_dir .. "/plugin.lua"
+			local spec_content = [[
+return {
+	url = "https://github.com/user/plugin",
+	keys = {
+		{
+			lhs = "<leader>x",
+			rhs = function() end,
+			mode = "n",
+		},
+	}
+}
+]]
+			write_spec_file(spec_file, spec_content)
+
+			-- act
+			local result, err = specs.scan("plugins", ctx.lua_dir)
+
+			-- assert
+			assert.is_nil(result)
+			assert.is_not_nil(err)
+			assert.is_truthy(err:match("Invalid key mode"))
+			assert.is_truthy(err:match("https://github.com/user/plugin"))
+			assert.is_truthy(err:match("expected table of modes, got string"))
+
+			ctx.cleanup()
+		end)
+
 		it("dependency with own config file keeps full spec", function()
 			-- arrange
 			local ctx = new_test_context()

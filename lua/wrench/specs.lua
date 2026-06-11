@@ -34,6 +34,18 @@ local function is_single_spec(tbl)
 	return tbl.url ~= nil
 end
 
+---Returns a context string that includes the plugin URL when available.
+---@param spec table The plugin spec.
+---@param context string The file/spec context used in error messages.
+---@return string context The context string.
+local function get_spec_context(spec, context)
+	if type(spec.url) == "string" and spec.url ~= "" then
+		return context .. " (" .. spec.url .. ")"
+	end
+
+	return context
+end
+
 ---Validates spec.dependencies.
 ---@param spec table The plugin spec to validate.
 ---@param context string The file/spec context used in error messages.
@@ -63,6 +75,52 @@ local function validate_dependencies(spec, context)
 		if type(dep.url) ~= "string" or dep.url == "" then
 			return "Invalid dependency in " .. context .. " dependency #" .. index .. ": expected non-empty url string"
 		end
+	end
+
+	return nil
+end
+
+---Validates spec.keys.
+---@param spec table The plugin spec to validate.
+---@param context string The file/spec context used in error messages.
+---@return string? error Error message if invalid.
+local function validate_keys(spec, context)
+	if spec.keys == nil then
+		return nil
+	end
+
+	if type(spec.keys) ~= "table" then
+		return "Invalid keys in " .. context .. ": expected table, got " .. type(spec.keys)
+	end
+
+	for index, key in ipairs(spec.keys) do
+		if type(key) ~= "table" then
+			return "Invalid key in " .. context .. " key #" .. index .. ": expected table, got " .. type(key)
+		end
+
+		if key.mode ~= nil and type(key.mode) ~= "table" then
+			return "Invalid key mode in " .. context .. " key #" .. index .. ": expected table of modes, got " .. type(key.mode)
+		end
+	end
+
+	return nil
+end
+
+---Validates a plugin spec.
+---@param spec table The plugin spec to validate.
+---@param context string The file/spec context used in error messages.
+---@return string? error Error message if invalid.
+local function validate_spec(spec, context)
+	local spec_context = get_spec_context(spec, context)
+
+	local dep_err = validate_dependencies(spec, spec_context)
+	if dep_err then
+		return dep_err
+	end
+
+	local key_err = validate_keys(spec, spec_context)
+	if key_err then
+		return key_err
 	end
 
 	return nil
@@ -121,18 +179,18 @@ function M.scan(import_path, base_path)
 			end
 
 			if is_single_spec(result) then
-				local dep_err = validate_dependencies(result, file)
-				if dep_err then
-					return nil, dep_err
+				local spec_err = validate_spec(result, file)
+				if spec_err then
+					return nil, spec_err
 				end
 
 				table.insert(all_specs, result)
 			else
 				-- List of specs
 				for index, spec in ipairs(result) do
-					local dep_err = validate_dependencies(spec, file .. " spec #" .. index)
-					if dep_err then
-						return nil, dep_err
+					local spec_err = validate_spec(spec, file .. " spec #" .. index)
+					if spec_err then
+						return nil, spec_err
 					end
 
 					table.insert(all_specs, spec)
